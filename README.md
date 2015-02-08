@@ -1,11 +1,12 @@
 Gadget-2.0.7-ngravs
+---------------------------------------------
+
 Copyright(c) 2015 Kevin Arthur Schiff Croker
 GPL v2
----------------------------------------------
 
 This code implements an extension of the N-body code GADGET-2 by Volker Springel so as to
 enable computation with D distinct interacting gravitational species.  To use the code, 
-one should first be familiar with GADGET-2, cas an be found here
+one should first be familiar with GADGET-2, cas an be found here:
 
 http://www.mpa-garching.mpg.de/gadget/  (Users' Guide)
 
