@@ -6,7 +6,7 @@ GPL v2
 
 This code implements an extension of the N-body code GADGET-2 by Volker Springel so as to
 enable computation with D distinct interacting gravitational species.  To use the code, 
-one should first be familiar with GADGET-2, cas an be found here:
+one should first be familiar with GADGET-2, can be found here:
 
 http://www.mpa-garching.mpg.de/gadget/  (Users' Guide)
 
@@ -34,3 +34,15 @@ the relevant code paper, submitted to MNRAS (Monthly Notices of the Royal Astron
 
 Word!
 -k@Manoa 2/7/15
+
+Acknowledgments:
+
+This material is based upon work supported by the National Science
+Foundation under Grant Number (12314-123x).  Any opinions, findings, and
+conclusions or recommendations expressed in this material are those of
+the author(s) and do not necessarily reflect the views of the National
+Science Foundation.
+
+
+
+
