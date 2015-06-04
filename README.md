@@ -27,12 +27,12 @@ Configuration
 Gadget-2.0.7-ngravs is configured identically to GADGET-2.  The following are new and 
 mandatory configuration file options:
 
-GravityGas [int]
-GravityHalo [int]
-GravityDisk [int]
-GravityBulge [int]
-GravityStars [int]
-GravityBndry [int]
+GravityGas [int] <br>
+GravityHalo [int] <br>
+GravityDisk [int] <br>
+GravityBulge [int] <br>
+GravityStars [int] <br>
+GravityBndry [int] <br>
 
 Here [int] will be any integer in [0,5] < N_GRAVS (as defined in Makefile) and specifies 
 the gravitational interaction to be used by that particular GADGET-2 particle type.
