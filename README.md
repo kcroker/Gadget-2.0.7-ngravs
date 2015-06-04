@@ -16,7 +16,12 @@ http://www.mpa-garching.mpg.de/gadget/
 The contents of this repository are sufficient to GNU make:
 1) cd to the repo directory
 2) adjust Makefile for your system
-3) type: <pre>make</pre>
+
+For the included example, type:
+<pre>
+cp Makefile.reference Makefile
+make
+</pre>
 
 If one wishes the documentation and test files included with GADGET-2, one may download from
 the above URL and then replace the contents of the Gadget2/ subdirectory with the contents of this
@@ -89,7 +94,7 @@ run.c: Iterates over timesteps, main loop<br>
 system.c: Miscellaneous routines, e.g. elapsed time measurements<br>
 timestep.c: Routines for ‘kicking’ particles and assigning new timesteps<br>
 allvars.h: Declares global variables<br>
-ngravs.h: Contains ngravs specific prototypes
+ngravs.h: Contains ngravs specific prototypes <br>
 proto.h: This file contains all function prototypes of the code (non-ngravs)<br>
 tags.h: Declares various tags for labelling MPI messages (non-ngravs).  Defines how ngravs
 tags are determined from the pre-existing ones <br>
