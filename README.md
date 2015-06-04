@@ -5,15 +5,49 @@ Copyright(c) 2015 Kevin Arthur Schiff Croker
 GPL v2
 
 This code implements an extension of the N-body code GADGET-2 by Volker Springel so as to
-enable computation with D distinct interacting gravitational species.  To use the code, 
-one should first be familiar with GADGET-2, can be found here:
+enable computation with D distinct interacting gravitational species.  
 
-http://www.mpa-garching.mpg.de/gadget/  (Users' Guide)
+Installation
+----------------------------------------------
+To use the code, one should first be familiar with GADGET-2, can be found here:
 
-To use ngravs, all the user need modify is the ngravs.c and ngravs.h files.  Comments in the C
+http://www.mpa-garching.mpg.de/gadget/
+
+The contents of this repository are sufficient to GNU make:
+1) cd to the repo directory
+2) adjust Makefile for your system (Makefile.reference works on modern Ubuntu systems)
+3) type: make
+
+If one wishes the documentation and test files included with GADGET-2, one may download from
+the above URL and then replace the contents of the Gadget2/ subdirectory with the contents of this
+repository.
+
+Configuration
+---------------------------------------------
+Gadget-2.0.7-ngravs is configured identically to GADGET-2.  The following are new and 
+mandatory configuration file options:
+
+GravityGas <int>
+GravityHalo <int>
+GravityDisk <int>
+GravityBulge <int>
+GravityStars <int>
+GravityBndry <int>
+
+Here <int> will be any integer in [0,5] < N_GRAVS (as defined in Makefile) and specifies 
+the gravitational interaction to be used by that particular GADGET-2 particle type.
+
+To use ngravs for your particular model, modify the ngravs.c and ngravs.h files.  Comments in the C
 file are quite verbose and there are two completely functional examples used to test the code, 
 one may follow them as necessary.
 
+Running
+----------------------------------------------
+Identical to GADGET-2.
+
+
+Other Notes
+------------------------------------------------
 To see how the extension works, as well as for some annotation on how the original Gadget-2 algorithms
 operate, I have interspersed various dated comments with 'KC MM/DD/YY' into the source files wherever
 I have made changes to the original source.  Sometimes, these comments are quite explicit and reference
@@ -30,10 +64,11 @@ unrolling loops, etc.  It turns out that these things matter, see the comments t
 performance gains!
 
 I hope ngravs is useful for investigation of your wild gravitation models!  If you use it, please cite
-the relevant code paper, submitted to MNRAS (Monthly Notices of the Royal Astronomical Society).
+the relevant code paper, submitted to Comput. Phys. Commun. (Computer Physics Communications).
 
 Word!
 -k@Manoa 2/7/15
+-k@Pitt 6/4/15 
 
 Acknowledgments:
 
@@ -42,7 +77,3 @@ Foundation under Grant Number 1415111.  Any opinions, findings, and
 conclusions or recommendations expressed in this material are those of
 the author(s) and do not necessarily reflect the views of the National
 Science Foundation.
-
-
-
-
