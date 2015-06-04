@@ -28,7 +28,7 @@
 #
 #----------------------------------------------------------------------------- 
 OPT  +=   -DN_GRAVS=2
-OPT  +=   -DNGRAVS_ACCUMULATOR
+#OPT  +=   -DNGRAVS_ACCUMULATOR
 #OPT  +=   -DNGRAVS_ACCUMULATOR_TESTING
 #OPT +=   -DNGRAVS_L3VIOLATION
 OPT  +=   -DNGRAVS_STOCK_TESTING
@@ -36,7 +36,7 @@ OPT  +=   -DNGRAVS_STOCK_TESTING
 
 
 #--------------------------------------- Basic operation mode of code
-OPT   +=  -DPERIODIC 
+#OPT   +=  -DPERIODIC 
 OPT   +=  -DUNEQUALSOFTENINGS
 
 
@@ -46,8 +46,8 @@ OPT   +=  -DWALLCLOCK
 
 
 #--------------------------------------- TreePM Options
-OPT   +=  -DPMGRID=128
-OPT   +=  -DPLACEHIGHRESREGION=3
+#OPT   +=  -DPMGRID=128
+#OPT   +=  -DPLACEHIGHRESREGION=3
 #OPT   +=  -DENLARGEREGION=1.2
 #OPT   +=  -DASMTH=2.0
 #OPT   +=  -DRCUT=4.5

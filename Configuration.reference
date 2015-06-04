@@ -1,7 +1,7 @@
 %  Relevant files
 
-InitCondFile  	   ../IC
-OutputDir         output 
+InitCondFile  	  GalaxyCollision.IC
+OutputDir         ./
 
 EnergyFile         energy.txt
 InfoFile           info.txt
@@ -11,6 +11,7 @@ CpuFile            cpu.txt
 RestartFile        restart
 SnapshotFileBase   snapshot
 
+% Note this is not used by the Galaxy Collision (OutputListOn is set to 0 below)
 OutputListFilename parameterfiles/output_list.txt
 
 % CPU time -limit
