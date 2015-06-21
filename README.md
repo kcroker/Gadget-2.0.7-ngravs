@@ -28,7 +28,8 @@ the above URL and then replace the contents of the Gadget2/ subdirectory with th
 repository.
 
 (Note that the included Makefile.reference works on modern Ubuntu systems, and with 
-the included Galaxy collision initial condition from GADGET-2)
+the included Galaxy collision initial condition from GADGET-2, modified so that particle
+types are distributed evenly across gravitation)
 
 Configuration
 ---------------------------------------------
@@ -49,8 +50,8 @@ To use ngravs for your particular model, modify the ngravs.c and ngravs.h files.
 file are quite verbose and there are two completely functional examples used to test the code, 
 one may follow them as necessary.
 
-(Note that the included Configuration.reference will run with the included Galaxy collision initial 
-condition from GADGET-2)
+(Note that the included Configuration.reference will run with the included modified Galaxy collision 
+initial condition from GADGET-2)
 
 Running
 ----------------------------------------------
@@ -112,7 +113,7 @@ Here, it seemed that a bunch of code was needlessly repeated, and so I commented
 but tagged it as possibly suspect.
 
 Regions in the code marked with PPP may be amenable to performance improvements.  If you'll note, Volker was 
-quite rigorous in eschewing divisions, making references to the same variables spatially proximal in the code,
+quite rigorous in eschewing divisions, making references to the same variables spatially proximate in the code,
 unrolling loops, etc.  It turns out that these things matter, see the comments to get an idea of some of the 
 performance gains!
 
