@@ -3206,6 +3206,9 @@ void force_treeallocate(int maxnodes, int maxpart)
 
       tabfac = NTAB / 3.0;
 
+      // KC 9/12/15
+      // XXX
+      // Note concealed Newtonian assumption in the x-space softening tabulations!
       for(i = 0; i < NTAB; i++)
 	{
 	  u = 3.0 / NTAB * (i + 0.5);
