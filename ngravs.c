@@ -43,6 +43,7 @@ void wire_grav_maps(void) {
   // NOTE: For all interaction functions
   //
   //       InteractionFunctions[TARGET][SOURCE]
+  //       (i.e. InteractionFunctions[PASSIVE][ACTIVE])
   //
   // NOTE: NgravsNames[][] is used to index things used by the simulation
   // code, like lattice correction tables.  So please make a unique identifier!
@@ -170,6 +171,33 @@ void wire_grav_maps(void) {
 #endif
 
 }
+
+ /*! This is the shortrange kernel for determination of the smoothing 
+  in the TreePM method.  Only 1/r has the extremely cute form of an erfc().
+
+  Our params are ordered as follows:
+    (kernel *) - a function pointer to the appropriate function for integration.  This function 
+                 is of type 'gravity': (passive mass, active mass, softening, separation, # contributors)
+    double - target mass.  This must be specified in the cse of force laws which also depend on the target mass.
+             This is much more restrictive as all masses must be uniform within each species in order for the 
+	     N_\perp modelling to work.
+    double - source mass.  This must be specified in the case of force laws which depend on the active mass. 
+             If there is such dependence, then this mass must be uniform across all particle species in order
+	     for N_\perp to behave in the manner expected.
+*/
+double smoothingKernel(double r, void * params) {
+
+  // KC 9/20/15
+  // Extract the goodies
+  gravity pot = *(gravity *) params;
+  double passive = *(double *) (params += sizeof(gravity *));
+  double active = *(double *) (params += sizeof(double *));
+  
+  // Return the integrand's value: pot(...) * 
+  return (*pot)(passive, active, 0, r, 1) * 
+}
+	      
+
 
 /*! Establish the mapping between particle type and the native
  *  gravitational force between two particles of this type.
@@ -407,12 +435,16 @@ double none(double target, double source, double h, double r, long N){
 //          so that taking the vector magnitude of this function's return value times
 //          the dx_i gives the correct force.
 //
+// NOTE OPTIMIZATION: since an AccelFxn does not use h as a softening, we pass in
+//                    the r^2 (since it is already computed), so that we only have 
+//                    to perform one multiplication here.
+//  
 /*! This is Newtonian gravity, and is the usual baryon-baryon interaction 
  */
 double newtonian(double target, double source, double h, double r, long N) {
 
   // Note newtonian does not violate SEP
-  return source / (r*r*r);
+  return source * / (h * r);
 } 
 
 /*! This is **inverted** Newtonian gravity, for use in the Hohmann & Wolfarth scenario
@@ -420,7 +452,7 @@ double newtonian(double target, double source, double h, double r, long N) {
 double neg_newtonian(double target, double source, double h, double r, long N) {
 
   // Note newtonian does not violate SEP
-  return -source / (r*r*r);
+  return -source * / (h * r);
 } 
 
 /*! This is the usual Newtonian gravitational potential
@@ -440,6 +472,9 @@ double neg_newtonian_pot(double target, double source, double h, double r, long 
 
 // KC 10/18/14
 // NOTE: Green's functions are not inverted from their usual sign
+// NOTE 2: The factor of 4\pi is missing, and G is 1 in internal Gadget-2 units
+//
+
 /*! This is the box periodic Green's function for a point source of unit mass
  */
 double pgdelta(double kx, double ky, double kz, double h, long N) {

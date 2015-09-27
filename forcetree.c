@@ -5,6 +5,10 @@
 #include <time.h>
 #include <mpi.h>
 
+#ifdef PMGRID
+#include <gsl/gs_integration.h>
+#endif
+
 #include "allvars.h"
 #include "proto.h"
 
@@ -30,7 +34,9 @@ static int last;
 /*! length of lock-up table for short-range force kernel in TreePM algorithm */
 #define NTAB 1000
 /*! variables for short-range lookup table */
-static float tabfac, shortrange_table[NTAB], shortrange_table_potential[NTAB];
+// KC 29.9.15 (European style)
+// Extended to accommodate all the possible smoothings
+static float tabfac, shortrange_table[N_GRAVS][N_GRAVS][NTAB], shortrange_table_potential[N_GRAVS][N_GRAVS][NTAB];
 
 /*! toggles after first tree-memory allocation, has only influence on log-files */
 static int first_flag = 0;
@@ -357,7 +363,7 @@ void force_insert_pseudo_particles(void)
 	DomainMoment[i].s[2][j] = Nodes[index].center[2];
 	DomainMoment[i].mass[j] = 0;
 	
-#ifdef NGRAVS_ACCUMULATOR
+#ifdef N_GRAVS_ACCUMULATOR
 	DomainMoment[i].Nparticles[j] = 0;
 #endif
       }
@@ -1958,7 +1964,7 @@ int force_treeevaluate_shortrange(int target, int mode)
 	 r = sqrt(r2[sG]);
 
 	 if(r >= h)
-	   fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], h, r, 1);
+	   fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
 	 else 
 	   fac = (*AccelSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
 	 
@@ -1966,11 +1972,20 @@ int force_treeevaluate_shortrange(int target, int mode)
 
 	  if(tabindex < NTAB)
 	    {
-	      fac *= shortrange_table[tabindex];
-
-	      acc_x += dx[sG] * fac;
-	      acc_y += dy[sG] * fac;
-	      acc_z += dz[sG] * fac;
+	      //fac *= shortrange_table[tabindex];
+	      
+	      // KC 27.9.15
+	      // Note that dx[sG] is the direction vector between the interactors: 
+	      //  \vec{r} = \hat{r}/r
+	      // By definition in ngravs, force laws include the factor of 1/r
+	      // We include the 1/r and 1/r^2 factors that end up in the force equation
+	      // inside the tabulation, to avoid very costly divisions.  The accuracy
+	      // of this approach will soon be seen...
+	      // 
+	      // There is also an N_\perp here which is set to 1, you will see it below...
+	      acc_x += dx[sG] * (fac - XXX*shortrange_table[tabindex]);
+	      acc_y += dy[sG] * (fac - XXX*shortrange_table[tabindex]);
+	      acc_z += dz[sG] * (fac - XXX*shortrange_table[tabindex]);
 	      
 	      // Flag to record interactions
 	      nintflag = 1;
@@ -1988,9 +2003,9 @@ int force_treeevaluate_shortrange(int target, int mode)
 	  if(r >= h) {
 #ifdef NGRAVS_ACCUMULATOR
 
-	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, Nparticles[whichGrav]);
+	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, Nparticles[whichGrav]);
 #else
-	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, 1);
+	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, 1);
 #endif
 	  }
 	  else {
@@ -2004,11 +2019,17 @@ int force_treeevaluate_shortrange(int target, int mode)
 
 	  if(tabindex < NTAB)
 	    {
-	      fac *= shortrange_table[tabindex];
-
-	      acc_x += dx[whichGrav] * fac;
-	      acc_y += dy[whichGrav] * fac;
-	      acc_z += dz[whichGrav] * fac;
+	      //fac *= shortrange_table[tabindex];
+	      
+	      // KC 27.9.15
+	      // Stronger assumptions: the pairwise forcelaw is assumed to be decomposable into
+	      //   M_source * f(r, M_source/N_perp)
+	      //
+	      // XXX
+	      // The Green's functions will require the active and passive mass
+	      acc_x += dx[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[tabindex]);
+	      acc_y += dy[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[tabindex]);
+	      acc_z += dz[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[tabindex]);
 	      
 	      // Flag to record interactions
 	      nintflag = 1;
@@ -3161,6 +3182,19 @@ void force_treeallocate(int maxnodes, int maxpart)
   double allbytes = 0;
   double u;
 
+  // KC 27.9.15
+  // Stuff to numerically integrate
+  gsl_integration_workspace *work;
+  gsl_integration_qawo_table *table;
+  double value, err;
+  gsl_function F;
+  struct {
+    gravity *pot;
+    double passive;
+    double active;
+    long N;
+  } params;
+
   MaxNodes = maxnodes;
 
   if(!(Nodes_base = malloc(bytes = (MaxNodes + 1) * sizeof(struct NODE))))
@@ -3203,21 +3237,63 @@ void force_treeallocate(int maxnodes, int maxpart)
       if(ThisTask == 0)
 	printf("\nAllocated %g MByte for BH-tree. %ld\n\n", allbytes / (1024.0 * 1024.0),
 	       sizeof(struct NODE) + sizeof(struct extNODE));
-
+      
+      // KC 9/20/15
+      // We place this inside a def because the shortrange stuff is certainly not used unless we
+      // are doing PMGRID, and since we will need to be integrating things numerically for ngravs
+      // this may take a bit of time (though it only needs to be performed once)
+#ifdef PMGRID
       tabfac = NTAB / 3.0;
 
       // KC 9/12/15
-      // XXX
-      // Note concealed Newtonian assumption in the x-space softening tabulations!
-      for(i = 0; i < NTAB; i++)
-	{
-	  u = 3.0 / NTAB * (i + 0.5);
-	  shortrange_table[i] = erfc(u) + 2.0 * u / sqrt(M_PI) * exp(-u * u);
-	  shortrange_table_potential[i] = erfc(u);
+      // Is the short-range force modulation independent of the force law?
+      // NOPE
+      // In general, we won't have the closed forms, so proceed with the 
+      // convolution against the gaussian smoothing.  We bound the errors relatively 
+      // to 1/10 of the user-specified force accuracy.  The appropriate algorithm to use 
+      // here is QAWO, in order to not lose precision during the oscillation of the integrand
+      // with the trigonometric weight function. (Croker, Comput. Phys. Comm 2015)
+      work = gsl_integration_workspace_alloc (1000);
+      F.params = &params;
+      F.function = smoothingKernel;
+
+      for(n = 0; n < NGRAVS; ++n) {
+	for(m = 0; m < NGRAVS; ++m) {
+	  
+	  printf("ngravs: Tabulating generalized force and potential smoothings for type %d <- %d...\n", n, m);
+	  params.pot = GreensFxns[n][m];
+
+	  // KC 27.9.15
+	  // Note the assumption that masses are uniform, or that the scale of the force law does
+	  // not depend on these quantities.
+	  params.passive = MassTable[n];
+	  params.active = MassTable[m];
+	  
+	  for(i = 0; i < NTAB; i++) {
+	    u = 3.0 / NTAB * (i + 0.5);
+	    
+	    F.params = NULL;
+	    
+	    // Set up the integration for the potential first
+	    table = gsl_integration_qawo_table_alloc(1, KCUT, GSL_INTEG_SINE, 100);
+	    
+	    // Set the parameters
+	    gsl_integration_qawo_table_set(table, u, KCUT, GSL_INTEG_SINE);
+
+	    // Perform the integration
+	    gsl_integration_qawo(&F, 0.001, 0.001, 
+				 0, 100, work, table, 
+				 shortrange_table_potential[n][m][i], &err);
+    
+	    // Make sure there were no errors!
+	    // XXX
+	  }
 	}
+      }
+#endif
     }
 }
-
+   
 
 /*! This function frees the memory allocated for the tree, i.e. it frees
  *  the space allocated by the function force_treeallocate().
