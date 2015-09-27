@@ -493,7 +493,18 @@ void pmforce_periodic(void)
 
 		  ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
 
-		  smth *= (*GreensFxns[nA][nB])(kx, ky, kz, 0.0, 1);
+		  // KC 27.9.15
+		  // 
+		  // CONSTRAINT: 
+		  // We send the MassTable masses as passive and active masses so that the 
+		  // scale of the force law can be appropriately set.  If the source mass appears
+		  // then it must be the same for all within the species.  If the target mass appears,
+		  // then ALL species must have uniform masses across their species.
+		  //
+		  // Note that the greens function can only ever depend on |k| since the force is 
+		  // isotropic!
+		  //
+		  smth *= (*GreensFxns[nA][nB])(MassTable[nA], MassTable[nB], k2, 0.0, 1);
 		  /* end deconvolution */
 		  
 		  // KC 12/4/14
@@ -1018,7 +1029,7 @@ void pmpotential_periodic(void)
 	      if(k2 > 0)
 		{
 		  // KC 10/5/14
-		  smth = -exp(-k2 * asmth2) * (*GreensFxns[nA][nB])(kx, ky, kz, 0.0, 1) * fac;
+		  smth = -exp(-k2 * asmth2) * (*GreensFxns[nA][nB])(MassTable[nA], MassTable[nB], k2, 0.0, 1) * fac;
 		  /* do deconvolution */
 		  fx = fy = fz = 1;
 		  if(kx != 0)

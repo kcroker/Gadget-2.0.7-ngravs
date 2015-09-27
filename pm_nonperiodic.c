@@ -378,6 +378,13 @@ void pm_setup_nonperiodic_kernel(void)
 	      
 	      u = 0.5 * r / (((double) ASMTH) / GRID);
 	    
+	      // KC 27.9.15
+	      // XXX
+	      // This will need to be fixed for the smoothing.
+	      //
+	      // Again, its not a simple factor applied in postion space, but the additive adjustment.
+	      // Integrate it out explicitly again here, as we don't seem to mind the timewaste of using 
+	      // the explicit u here (since we only do this once at the start of the program)
 	      fac = 1 - erfc(u);
 
 	      if(r > 0) {
@@ -390,7 +397,8 @@ void pm_setup_nonperiodic_kernel(void)
 		// KC 11/23/14
 		// This is the free-space position space Green's Function for a source at the origin:
 		// the solution of Poisson's equation for a single source
-		kernel[0][n][m][GRID * GRID2 * (i -slabstart_x) + GRID2 * j + k] = -fac * (*PotentialFxns[n][m])(1, 1, 0.0, r, 1);
+		kernel[0][n][m][GRID * GRID2 * (i -slabstart_x) + GRID2 * j + k] = -fac * 
+		  (*PotentialFxns[n][m])(MassTable[nA], MassTable[nB], 0.0, r, 1);
 	      }
 	      else {
 		// KC 1/25/15
@@ -429,11 +437,15 @@ void pm_setup_nonperiodic_kernel(void)
 	      
 	      u = 0.5 * r / (((double) ASMTH) / GRID);
 
+	      // KC 27.9.15
+	      // XXX
+	      // Again, this will need to be adjusted for the generic smoothing that can now
+	      // take place.
 	      fac = erfc(u * All.Asmth[1] / All.Asmth[0]) - erfc(u);
 
 	      if(r > 0) {
 		kernel[1][n][m][GRID * GRID2 * (i - slabstart_x) + GRID2 * j + k] = 
-		  -fac * (*PotentialFxns[n][m])(1, 1, 0.0, r, 1);
+		  -fac * (*PotentialFxns[n][m])(MassTable[nA], MassTable[nB], 0.0, r, 1);
 	      }
 	      else {
 	    

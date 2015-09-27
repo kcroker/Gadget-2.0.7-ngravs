@@ -185,16 +185,29 @@ void wire_grav_maps(void) {
              If there is such dependence, then this mass must be uniform across all particle species in order
 	     for N_\perp to behave in the manner expected.
 */
-double smoothingKernel(double r, void * params) {
+double smoothingKernelPotential(double k, void * params) {
 
   // KC 9/20/15
   // Extract the goodies
-  gravity pot = *(gravity *) params;
+  gravity kpot = *(gravity *) params;
   double passive = *(double *) (params += sizeof(gravity *));
   double active = *(double *) (params += sizeof(double *));
   
   // Return the integrand's value: pot(...) * 
-  return (*pot)(passive, active, 0, r, 1) * 
+  return (*kpot)(passive, active, k*k, k, 1) * k; 
+}
+
+double smoothingKernelForce(double k, void * params) {
+
+  // KC 9/20/15
+  // Extract the goodies
+  gravity kpot = *(gravity *) params;
+  double passive = *(double *) (params += sizeof(gravity *));
+  double active = *(double *) (params += sizeof(double *));
+  double k2 = k*k;
+
+  // Return the integrand's value: pot(...) * 
+  return (*kpot)(passive, active, k2, k, 1) * k2; 
 }
 	      
 
@@ -477,17 +490,17 @@ double neg_newtonian_pot(double target, double source, double h, double r, long 
 
 /*! This is the box periodic Green's function for a point source of unit mass
  */
-double pgdelta(double kx, double ky, double kz, double h, long N) {
+double pgdelta(double target, double source, double k2, double k, long N) {
 
-  return 1.0/(kx * kx + ky * ky + kz * kz);
+  return 1.0/k2;
 }
 
 /*! This is the **inverted** box periodic Green's function for a point source of unit mass, 
  *  for use in the Hohmann & Wolfarth scenario
  */
-double neg_pgdelta(double kx, double ky, double kz, double h, long N) {
+double neg_pgdelta(double target, double source, double k2, double k, long N) {
 
-  return -1.0/(kx * kx + ky * ky + kz * kz);
+  return -1.0/k2;
 }
 
 /*! This is the Plummer spline used by GADGET-2
@@ -571,7 +584,7 @@ double newyukawa(double target, double source, double h, double r, long N) {
 #define YUKAWA_ALPHA 1
 #define YUKAWA_LAMBDA_INV 1e-2
 
-  return source / (r * r * r) * -YUKAWA_ALPHA * expm1f(-r*YUKAWA_LAMBDA_INV);
+  return source / (r * h) * -YUKAWA_ALPHA * expm1f(-r*YUKAWA_LAMBDA_INV);
 }
 
 /*! This is the BAM-BAM interaction

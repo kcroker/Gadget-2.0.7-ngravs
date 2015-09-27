@@ -8,8 +8,8 @@ double sourcebambaryon(double target, double source, double h, double r, long N)
 double newyukawa(double target, double source, double h, double r, long N);
 
 // (Periodic) Greens functions
-double pgdelta(double kx, double ky, double kz, double h, long N);
-double neg_pgdelta(double kx, double ky, double kz, double h, long N); 
+double pgdelta(double target, double source, double k2, double k, long N);
+double neg_pgdelta(double target, double source, double k2, double k, long N); 
 
 // Potential functions
 double newtonian_pot(double target, double source, double h, double r, long N);

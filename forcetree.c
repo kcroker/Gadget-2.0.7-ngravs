@@ -1547,7 +1547,7 @@ int force_treeevaluate(int target, int mode, double *latticecountsum)
 	// KC 1/31/15
 	// AccelFxns now return the normalized value in one step...
 	if(r >= h)
-	  fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], h, r, 1);
+	  fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
 	else
 	  fac = (*AccelSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
 	
@@ -1569,9 +1569,9 @@ int force_treeevaluate(int target, int mode, double *latticecountsum)
 	  // KC 10/18/14
 	  if(r >= h) {
 #ifdef NGRAVS_ACCUMULATOR
-	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], h, r, Nparticles[i]);
+	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], r2[i], r, Nparticles[i]);
 #else
-	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], h, r, 1);
+	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], r2[i], r, 1);
 #endif
 	  }
 	  else
@@ -1978,14 +1978,17 @@ int force_treeevaluate_shortrange(int target, int mode)
 	      // Note that dx[sG] is the direction vector between the interactors: 
 	      //  \vec{r} = \hat{r}/r
 	      // By definition in ngravs, force laws include the factor of 1/r
+	      //
 	      // We include the 1/r and 1/r^2 factors that end up in the force equation
 	      // inside the tabulation, to avoid very costly divisions.  The accuracy
 	      // of this approach will soon be seen...
+	      //
+	      // We include the assumed Active Mass multiplicand in the table 
 	      // 
 	      // There is also an N_\perp here which is set to 1, you will see it below...
-	      acc_x += dx[sG] * (fac - XXX*shortrange_table[tabindex]);
-	      acc_y += dy[sG] * (fac - XXX*shortrange_table[tabindex]);
-	      acc_z += dz[sG] * (fac - XXX*shortrange_table[tabindex]);
+	      acc_x += dx[sG] * (fac - shortrange_table[pgravtype][sG][tabindex]);
+	      acc_y += dy[sG] * (fac - shortrange_table[pgravtype][sG][tabindex]);
+	      acc_z += dz[sG] * (fac - shortrange_table[pgravtype][sG][tabindex]);
 	      
 	      // Flag to record interactions
 	      nintflag = 1;
@@ -2027,9 +2030,9 @@ int force_treeevaluate_shortrange(int target, int mode)
 	      //
 	      // XXX
 	      // The Green's functions will require the active and passive mass
-	      acc_x += dx[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[tabindex]);
-	      acc_y += dy[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[tabindex]);
-	      acc_z += dz[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[tabindex]);
+	      acc_x += dx[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
+	      acc_y += dy[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
+	      acc_z += dz[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
 	      
 	      // Flag to record interactions
 	      nintflag = 1;
@@ -3255,7 +3258,6 @@ void force_treeallocate(int maxnodes, int maxpart)
       // with the trigonometric weight function. (Croker, Comput. Phys. Comm 2015)
       work = gsl_integration_workspace_alloc (1000);
       F.params = &params;
-      F.function = smoothingKernel;
 
       for(n = 0; n < NGRAVS; ++n) {
 	for(m = 0; m < NGRAVS; ++m) {
@@ -3264,19 +3266,19 @@ void force_treeallocate(int maxnodes, int maxpart)
 	  params.pot = GreensFxns[n][m];
 
 	  // KC 27.9.15
-	  // Note the assumption that masses are uniform, or that the scale of the force law does
-	  // not depend on these quantities.
+	  // Note the assumption that masses are uniform within a species when the scale of the 
+	  // force law depends on that mass.  If passive masses determine scale, then all masses must
+	  // be uniform within each type.
 	  params.passive = MassTable[n];
 	  params.active = MassTable[m];
-	  
+
+	  // Set up the integration for the potential first
+	  table = gsl_integration_qawo_table_alloc(1, KCUT, GSL_INTEG_SINE, 100);
+	  F.function = smoothingKernelPotential;
+
 	  for(i = 0; i < NTAB; i++) {
 	    u = 3.0 / NTAB * (i + 0.5);
-	    
-	    F.params = NULL;
-	    
-	    // Set up the integration for the potential first
-	    table = gsl_integration_qawo_table_alloc(1, KCUT, GSL_INTEG_SINE, 100);
-	    
+
 	    // Set the parameters
 	    gsl_integration_qawo_table_set(table, u, KCUT, GSL_INTEG_SINE);
 
@@ -3287,9 +3289,56 @@ void force_treeallocate(int maxnodes, int maxpart)
     
 	    // Make sure there were no errors!
 	    // XXX
+
+	    // Assign value:
+	    // - We premultiply by the active mass, because we assume it is fixed for each species
+	    // - We do not premultiply by the passive mass, because Gadget-2 works with accelerations, so this 
+	    //   is already divided off
+	    // - We premultiply the potential by 1/r^2 to avoid this division during the tree computation.
+	    //   This may wreck accuracy, but lets hope not.
+	    // 
+	    // XXX
+	    // This computation is incorrect by some factor related to the normalization of the 
+	    // separation r.
+	    shortrange_table_potential[n][m][i] *= params.active / (u*u);
+	  }
+
+	  // Now do the integration for the force
+	  table = gsl_integration_qawo_table_alloc(1, KCUT, GSL_INTEG_COSINE, 100);
+	  F.function = smoothingKernelForce;
+
+	  for(i = 0; i < NTAB; i++) {
+	    u = 3.0 / NTAB * (i + 0.5);
+	    
+	    // Set the parameters
+	    gsl_integration_qawo_table_set(table, u, KCUT, GSL_INTEG_COSINE);
+	    
+	    // Perform the integration
+	    gsl_integration_qawo(&F, 0.001, 0.001, 
+				 0, 100, work, table, 
+				 shortrange_table[n][m][i], &err);
+    
+	    // Make sure there were no errors!
+	    // XXX
+
+	    // Assign value:
+	    // - note that we took the derivative with respect to r
+	    // XXX
+	    // Check the damn signs, we needed to take a negative gradient, but we 
+	    // got all of this from the k-space Greens, so need to check the sign
+	    // of that function
+	    // XXX
+	    // This function is off by some sort of factor relating u to the actual separation
+	    // r...
+	    shortrange_table[n][m][i] *= params.active / (u*u);
+	    shortrange_table[n][m][i] -= shortrange_table_potential[n][m][i] / u;
 	  }
 	}
       }
+
+      // Clean up the GSL workspace functions
+      gsl_integration_qawo_table_free(table);
+      gsl_integration_workspace_free(work);
 #endif
     }
 }
@@ -3390,7 +3439,7 @@ int force_treeevaluate_direct(int target, int mode)
       u = r * h_inv;
 
       if(u >= 1)
-	fac = (*AccelFxns[pgravtype][TypeToGrav[P[i].Type]])(pmass, P[i].Mass, h, r, 1);
+	fac = (*AccelFxns[pgravtype][TypeToGrav[P[i].Type]])(pmass, P[i].Mass, r2, r, 1);
       else
 	fac = (*AccelSplines[pgravtype][TypeToGrav[P[i].Type]])(pmass, P[i].Mass, h, r, 1);
 	
