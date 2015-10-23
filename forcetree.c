@@ -5,10 +5,6 @@
 #include <time.h>
 #include <mpi.h>
 
-#ifdef PMGRID
-#include <gsl/gs_integration.h>
-#endif
-
 #include "allvars.h"
 #include "proto.h"
 
@@ -32,7 +28,7 @@ static int last;
 
 
 /*! length of lock-up table for short-range force kernel in TreePM algorithm */
-#define NTAB 1000
+//#define NTAB 1000
 /*! variables for short-range lookup table */
 // KC 29.9.15 (European style)
 // Extended to accommodate all the possible smoothings
@@ -2030,9 +2026,9 @@ int force_treeevaluate_shortrange(int target, int mode)
 	      //
 	      // XXX
 	      // The Green's functions will require the active and passive mass
-	      acc_x += dx[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
-	      acc_y += dy[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
-	      acc_z += dz[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
+	      /* acc_x += dx[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]); */
+	      /* acc_y += dy[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]); */
+	      /* acc_z += dz[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]); */
 	      
 	      // Flag to record interactions
 	      nintflag = 1;
@@ -3118,7 +3114,7 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
 
 	if(tabindex < NTAB)
 	  {
-	    fac = shortrange_table_potential[tabindex];
+	    fac = shortrange_table_potential[pgravtype][sG][tabindex];
 
 	    if(r >= h)
 	      pot -= fac * (*PotentialFxns[pgravtype][sG])(pmass, mass[sG], h, r, 1);
@@ -3139,7 +3135,7 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
 
 	  if(tabindex < NTAB)
 	    {
-	      fac = shortrange_table_potential[tabindex];
+	      fac = shortrange_table_potential[pgravtype][i][tabindex];
 
 	      if(r >= h) {
 #ifdef NGRAVS_ACCUMULATOR
@@ -3186,17 +3182,8 @@ void force_treeallocate(int maxnodes, int maxpart)
   double u;
 
   // KC 27.9.15
-  // Stuff to numerically integrate
-  gsl_integration_workspace *work;
-  gsl_integration_qawo_table *table;
-  double value, err;
-  gsl_function F;
-  struct {
-    gravity *pot;
-    double passive;
-    double active;
-    long N;
-  } params;
+  double *oRes, *oResI;
+  fftw_plan plan;
 
   MaxNodes = maxnodes;
 
@@ -3246,99 +3233,34 @@ void force_treeallocate(int maxnodes, int maxpart)
       // are doing PMGRID, and since we will need to be integrating things numerically for ngravs
       // this may take a bit of time (though it only needs to be performed once)
 #ifdef PMGRID
-      tabfac = NTAB / 3.0;
+      //      tabfac = NTAB / 3.0;
+      oRes = (double *)malloc(sizeof(double)*NGRAVS_TPM_N);
+      oResI = (double *)malloc(sizeof(double)*NGRAVS_TPM_N);
+      
+      plan = fftw_create_plan(NGRAVS_TPM_N, FFTW_BACKWARD, FFTW_ESTIMATE);
+      
+      // Note!!
+      // pm_periodic ~61:  All.Asmth[0] = ASMTH * All.BoxSize / PMGRID; 
+      // pm_periodic/potential: asmth2 = 2\pi All.Asmth[0] / All.BoxSize;
+      // convolves with a factor: fac = All.G / (M_PI * All.BoxSize);
 
-      // KC 9/12/15
-      // Is the short-range force modulation independent of the force law?
-      // NOPE
-      // In general, we won't have the closed forms, so proceed with the 
-      // convolution against the gaussian smoothing.  We bound the errors relatively 
-      // to 1/10 of the user-specified force accuracy.  The appropriate algorithm to use 
-      // here is QAWO, in order to not lose precision during the oscillation of the integrand
-      // with the trigonometric weight function. (Croker, Comput. Phys. Comm 2015)
-      work = gsl_integration_workspace_alloc (1000);
-      F.params = &params;
-
-      for(n = 0; n < NGRAVS; ++n) {
-	for(m = 0; m < NGRAVS; ++m) {
-	  
-	  printf("ngravs: Tabulating generalized force and potential smoothings for type %d <- %d...\n", n, m);
-	  params.pot = GreensFxns[n][m];
-
-	  // KC 27.9.15
-	  // Note the assumption that masses are uniform within a species when the scale of the 
-	  // force law depends on that mass.  If passive masses determine scale, then all masses must
-	  // be uniform within each type.
-	  params.passive = MassTable[n];
-	  params.active = MassTable[m];
-
-	  // Set up the integration for the potential first
-	  table = gsl_integration_qawo_table_alloc(1, KCUT, GSL_INTEG_SINE, 100);
-	  F.function = smoothingKernelPotential;
-
-	  for(i = 0; i < NTAB; i++) {
-	    u = 3.0 / NTAB * (i + 0.5);
-
-	    // Set the parameters
-	    gsl_integration_qawo_table_set(table, u, KCUT, GSL_INTEG_SINE);
-
-	    // Perform the integration
-	    gsl_integration_qawo(&F, 0.001, 0.001, 
-				 0, 100, work, table, 
-				 shortrange_table_potential[n][m][i], &err);
-    
-	    // Make sure there were no errors!
-	    // XXX
-
-	    // Assign value:
-	    // - We premultiply by the active mass, because we assume it is fixed for each species
-	    // - We do not premultiply by the passive mass, because Gadget-2 works with accelerations, so this 
-	    //   is already divided off
-	    // - We premultiply the potential by 1/r^2 to avoid this division during the tree computation.
-	    //   This may wreck accuracy, but lets hope not.
-	    // 
-	    // XXX
-	    // This computation is incorrect by some factor related to the normalization of the 
-	    // separation r.
-	    shortrange_table_potential[n][m][i] *= params.active / (u*u);
-	  }
-
-	  // Now do the integration for the force
-	  table = gsl_integration_qawo_table_alloc(1, KCUT, GSL_INTEG_COSINE, 100);
-	  F.function = smoothingKernelForce;
-
-	  for(i = 0; i < NTAB; i++) {
-	    u = 3.0 / NTAB * (i + 0.5);
-	    
-	    // Set the parameters
-	    gsl_integration_qawo_table_set(table, u, KCUT, GSL_INTEG_COSINE);
-	    
-	    // Perform the integration
-	    gsl_integration_qawo(&F, 0.001, 0.001, 
-				 0, 100, work, table, 
-				 shortrange_table[n][m][i], &err);
-    
-	    // Make sure there were no errors!
-	    // XXX
-
-	    // Assign value:
-	    // - note that we took the derivative with respect to r
-	    // XXX
-	    // Check the damn signs, we needed to take a negative gradient, but we 
-	    // got all of this from the k-space Greens, so need to check the sign
-	    // of that function
-	    // XXX
-	    // This function is off by some sort of factor relating u to the actual separation
-	    // r...
-	    shortrange_table[n][m][i] *= params.active / (u*u);
-	    shortrange_table[n][m][i] -= shortrange_table_potential[n][m][i] / u;
-	  }
-	}
+      // This later stuff will be in a loop, that's why we use one plan
+      performConvolution(plan, newtonKGreen, 1/*2*M_PI*All.Asmth[0]/All.BoxSize*/, oRes, oResI);
+      
+      printf("Z: %f, Max m: %d, size of oRes: %d\n", 2*M_PI*All.Asmth[0]/All.BoxSize, gadgetToTPM(NTAB), NGRAVS_TPM_N);
+      for(i = 0; i < NTAB; i++) {
+	u = 3.0 / NTAB * (i + 0.5);
+ 
+	// DEBUG #1: Output the values
+	printf("%d %d %f %f %f\n", i, gadgetToTPM(i)/2, u, oResI[gadgetToTPM(i)/2], erf(u));
       }
+      
+      // Outside of the loop, clean up
+      free(oRes);
+      free(oResI);
+      fftw_destroy_plan(plan);
 
-      // Clean up the GSL workspace functions
-      gsl_integration_qawo_table_free(table);
-      gsl_integration_workspace_free(work);
+      endrun(1444);
 #endif
     }
 }

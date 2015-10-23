@@ -301,13 +301,13 @@ void gravity_forcetest(void)
 			P[i].GravAccelDirect[0], P[i].GravAccelDirect[1], P[i].GravAccelDirect[2],
 			P[i].GravAccel[0], P[i].GravAccel[1], P[i].GravAccel[2], P[i].ID);
 #else
-		fprintf(FdForceTest, "%d %g %g %g %g %g %g %g %g %g %g %g %g %g %g\n",
+		fprintf(FdForceTest, "%d %g %g %g %g %g %g %g %g %g %g %g %g %g %g %d\n",
 			P[i].Type, All.Time, All.Time - TimeOfLastTreeConstruction,
 			P[i].Pos[0], P[i].Pos[1], P[i].Pos[2],
 			P[i].GravAccelDirect[0], P[i].GravAccelDirect[1], P[i].GravAccelDirect[2],
 			P[i].GravAccel[0], P[i].GravAccel[1], P[i].GravAccel[2],
 			P[i].GravPM[0] + P[i].GravAccel[0],
-			P[i].GravPM[1] + P[i].GravAccel[1], P[i].GravPM[2] + P[i].GravAccel[2]);
+			P[i].GravPM[1] + P[i].GravAccel[1], P[i].GravPM[2] + P[i].GravAccel[2], P[i].ID);
 #endif
 	      }
 	  fclose(FdForceTest);

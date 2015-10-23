@@ -8,6 +8,8 @@
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_math.h>
 
+#include <fftw.h>
+
 #include "allvars.h"
 #include "proto.h"
 
@@ -172,45 +174,106 @@ void wire_grav_maps(void) {
 
 }
 
- /*! This is the shortrange kernel for determination of the smoothing 
-  in the TreePM method.  Only 1/r has the extremely cute form of an erfc().
 
-  Our params are ordered as follows:
-    (kernel *) - a function pointer to the appropriate function for integration.  This function 
-                 is of type 'gravity': (passive mass, active mass, softening, separation, # contributors)
-    double - target mass.  This must be specified in the cse of force laws which also depend on the target mass.
-             This is much more restrictive as all masses must be uniform within each species in order for the 
-	     N_\perp modelling to work.
-    double - source mass.  This must be specified in the case of force laws which depend on the active mass. 
-             If there is such dependence, then this mass must be uniform across all particle species in order
-	     for N_\perp to behave in the manner expected.
-*/
-double smoothingKernelPotential(double k, void * params) {
+///////////////// BEGIN FOURIER INTEGRATION ROUTINES /////////////////////
+// 
+// The NGRAVS_TPM_N below gives samples in x-space at (1/2Ntab, 2/2Ntab, ..., (6Ntab + 3)/2Ntab)/2 
+// The additional factor of 0.5 (2x as many samples in k) is required to critically sample!
+// 
+// Gadget-2 uses only a subset of these samples in position space (NTAB of them ;) ), but 
+// taking many more is a good idea, especially because we need to be integrating, so that's good
+//
+//#define NTAB 1000  // AMPLITUDE AND WIDTH STABLE
+//#define NGRAVS_TPM_N 2*(6*NTAB+3) // AMPLITUDE AND WIDTH STABLE.  Divided out the FFTW N!
 
-  // KC 9/20/15
-  // Extract the goodies
-  gravity kpot = *(gravity *) params;
-  double passive = *(double *) (params += sizeof(gravity *));
-  double active = *(double *) (params += sizeof(double *));
-  
-  // Return the integrand's value: pot(...) * 
-  return (*kpot)(passive, active, k*k, k, 1) * k; 
+double jTok(int j, double Z) {
+
+  return 2*M_PI * j * NTAB / (double)(Z * NGRAVS_TPM_N);
 }
 
-double smoothingKernelForce(double k, void * params) {
+double mTox(int m, double Z) {
+  
+  return m*Z/(double)NTAB;
+}
 
-  // KC 9/20/15
-  // Extract the goodies
-  gravity kpot = *(gravity *) params;
-  double passive = *(double *) (params += sizeof(gravity *));
-  double active = *(double *) (params += sizeof(double *));
+//
+// To keep it consistent with the other code
+double fourierIntegrand(double k, gravity normKGreen, double Z) {
+  
   double k2 = k*k;
 
-  // Return the integrand's value: pot(...) * 
-  return (*kpot)(passive, active, k2, k, 1) * k2; 
+  // Will probably be other facs here, not same as pm_periodic though because this is a 1D xform
+  // 2\pi from phi integration, 1/\pi from inverse unnormalized Fourier transform.
+  return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z) * 2; 
 }
-	      
 
+//
+// Note that the k-space greens' functions seem to be dimensionless expressions
+// with the Boxsize dimension explicitly reintroduced in the usual Gadget-2
+// through fac, Asmth[0], etc. in pm_periodic.c
+//
+double newtonKGreen(double target, double source, double k2, double k, long N) {
+  
+  return 1.0; // Normalized Yukawa -> k2 / (k2 + 0.5);
+}
+
+void performConvolution(fftw_plan plan, gravity normKGreen, double Z, double *oRes, double *oResI) {
+  
+  fftw_complex in[NGRAVS_TPM_N], out[NGRAVS_TPM_N];
+  int m,j;
+  double sum;
+ 
+  // Zero out all arrays first 
+  for(j = 0; j < NGRAVS_TPM_N; ++j) {
+    in[j].re = 0;
+    in[j].im = 0;
+  }
+
+  // 1) FFTW needs this loaded in wonk order
+  in[0].re = fourierIntegrand(jTok(0, Z), normKGreen, Z);
+  for(j = 1; j < NGRAVS_TPM_N/2; ++j) {
+
+    in[j].re = fourierIntegrand(jTok(j, Z), normKGreen, Z);
+    in[NGRAVS_TPM_N - j].re = fourierIntegrand(jTok(j, Z), normKGreen, Z);
+  }
+
+  // 2) Xform
+  fftw_one(plan, in, out);
+
+  // 2.5) Do silly mapping (check ths for errors, jeeez)
+  // Adjust normalization!
+  //
+  // Note that the normalization comes from the change of variables in the
+  // non-unitary angular Fourier xform (wiki column 4)
+  //
+  // We also confirm that it is integrating effectively over symmetric limits!
+  for(m = 0; m < NGRAVS_TPM_N; ++m)
+    oRes[m] = out[m].re * NTAB / (Z*NGRAVS_TPM_N);
+
+  // 3) Integrate the dumb way so we can keep the sampling interval the same
+  //    in the integrated function. 
+  sum = 0.0;
+  oResI[0] = 0.0;
+  for(m = 1; m < NGRAVS_TPM_N; ++m) {
+    sum += (mTox(m, Z) - mTox(m-1, Z)) * 0.5 * (oRes[m-1] + oRes[m]);
+    oResI[m] = sum;
+  }
+}
+
+//
+// Takes a Gadget-2 i and returns the appropriate m to give
+// this value in the table:
+//
+//    m / 4Ntab = 3(i + 1/2)/Ntab
+// So:
+//    m = 12i + 6
+//
+int gadgetToTPM(int i) {
+
+  return (12*i + 6);
+}
+
+//////////////////////// END FOURIER INTEGRATION ROUTINES //////////
 
 /*! Establish the mapping between particle type and the native
  *  gravitational force between two particles of this type.
@@ -457,7 +520,7 @@ double none(double target, double source, double h, double r, long N){
 double newtonian(double target, double source, double h, double r, long N) {
 
   // Note newtonian does not violate SEP
-  return source * / (h * r);
+  return source / (h * r);
 } 
 
 /*! This is **inverted** Newtonian gravity, for use in the Hohmann & Wolfarth scenario
@@ -465,7 +528,7 @@ double newtonian(double target, double source, double h, double r, long N) {
 double neg_newtonian(double target, double source, double h, double r, long N) {
 
   // Note newtonian does not violate SEP
-  return -source * / (h * r);
+  return -source / (h * r);
 } 
 
 /*! This is the usual Newtonian gravitational potential

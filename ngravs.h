@@ -1,3 +1,5 @@
+#include <fftw.h>
+
 // Gravitational interactions (accelerations)
 double none(double target, double source, double h, double r, long N);
 double newtonian(double target, double source, double h, double r, long N);
@@ -8,6 +10,7 @@ double sourcebambaryon(double target, double source, double h, double r, long N)
 double newyukawa(double target, double source, double h, double r, long N);
 
 // (Periodic) Greens functions
+double newtonKGreen(double target, double source, double k2, double k, long N);
 double pgdelta(double target, double source, double k2, double k, long N);
 double neg_pgdelta(double target, double source, double k2, double k, long N); 
 
@@ -26,6 +29,10 @@ double null_spline(double target, double source, double h, double r, long N);
 // Potential spline functions
 double plummer_pot(double target, double source, double h, double r, long N);
 double neg_plummer_pot(double target, double source, double h, double r, long N);
+
+// Functions required for convolution
+int gadgetToTPM(int i);
+void performConvolution(fftw_plan plan, gravity normKGreen, double Z, double *oRes, double *oResI);
 
 // Initialization functions for ngravs extension
 void wire_grav_maps(void);
