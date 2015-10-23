@@ -513,7 +513,7 @@ double none(double target, double source, double h, double r, long N){
 //
 // NOTE OPTIMIZATION: since an AccelFxn does not use h as a softening, we pass in
 //                    the r^2 (since it is already computed), so that we only have 
-//                    to perform one multiplication here.
+//                    to ever perform multiplications.
 //  
 /*! This is Newtonian gravity, and is the usual baryon-baryon interaction 
  */

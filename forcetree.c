@@ -1958,7 +1958,7 @@ int force_treeevaluate_shortrange(int target, int mode)
       if(sG > -1) {
 
 	 r = sqrt(r2[sG]);
-
+	 
 	 if(r >= h)
 	   fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
 	 else 
@@ -1968,23 +1968,19 @@ int force_treeevaluate_shortrange(int target, int mode)
 
 	  if(tabindex < NTAB)
 	    {
-	      //fac *= shortrange_table[tabindex];
-	      
+ 	      // KC 10/22/15
+	      // Cringe.
+	      r2inv = 1/r2[sG];
+	 
 	      // KC 27.9.15
 	      // Note that dx[sG] is the direction vector between the interactors: 
 	      //  \vec{r} = \hat{r}/r
 	      // By definition in ngravs, force laws include the factor of 1/r
 	      //
-	      // We include the 1/r and 1/r^2 factors that end up in the force equation
-	      // inside the tabulation, to avoid very costly divisions.  The accuracy
-	      // of this approach will soon be seen...
-	      //
-	      // We include the assumed Active Mass multiplicand in the table 
-	      // 
 	      // There is also an N_\perp here which is set to 1, you will see it below...
-	      acc_x += dx[sG] * (fac - shortrange_table[pgravtype][sG][tabindex]);
-	      acc_y += dy[sG] * (fac - shortrange_table[pgravtype][sG][tabindex]);
-	      acc_z += dz[sG] * (fac - shortrange_table[pgravtype][sG][tabindex]);
+	      acc_x += dx[sG] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
+	      acc_y += dy[sG] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
+	      acc_z += dz[sG] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
 	      
 	      // Flag to record interactions
 	      nintflag = 1;
@@ -2003,7 +1999,7 @@ int force_treeevaluate_shortrange(int target, int mode)
 #ifdef NGRAVS_ACCUMULATOR
 
 	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, Nparticles[whichGrav]);
-#else
+#else3
 	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, 1);
 #endif
 	  }
@@ -2018,18 +2014,25 @@ int force_treeevaluate_shortrange(int target, int mode)
 
 	  if(tabindex < NTAB)
 	    {
-	      //fac *= shortrange_table[tabindex];
-	      
-	      // KC 27.9.15
-	      // Stronger assumptions: the pairwise forcelaw is assumed to be decomposable into
-	      //   M_source * f(r, M_source/N_perp)
-	      //
-	      // XXX
-	      // The Green's functions will require the active and passive mass
-	      /* acc_x += dx[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]); */
-	      /* acc_y += dy[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]); */
-	      /* acc_z += dz[whichGrav] * (fac - Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]); */
-	      
+	      // KC 10/22/15
+	      // Cringe.
+	      r2inv = 1/r2[sG];
+
+#ifdef NGRAVS_ACCUMULATOR
+
+	      // KC 10/22/15 Note that this is the correct assumption:
+	      // We fourier transformed a green's function, which will
+	      // have the (necessarily fixed for periodic modes)
+	      // active mass programmed into it.  The correct behaviour
+	      // is then to scale linearly the contribution.
+	      acc_x += dx[whichGrav] * (fac - 2 * r2inv * Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
+	      acc_y += dy[whichGrav] * (fac - 2 * r2inv * Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
+	      acc_z += dz[whichGrav] * (fac - 2 * r2inv * Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
+#else
+	      acc_x += dx[whichGrav] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
+	      acc_y += dy[whichGrav] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
+	      acc_z += dz[whichGrav] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
+#endif	      
 	      // Flag to record interactions
 	      nintflag = 1;
 	    }
@@ -3184,6 +3187,7 @@ void force_treeallocate(int maxnodes, int maxpart)
   // KC 27.9.15
   double *oRes, *oResI;
   fftw_plan plan;
+  int m, n;
 
   MaxNodes = maxnodes;
 
@@ -3241,20 +3245,26 @@ void force_treeallocate(int maxnodes, int maxpart)
       
       // Note!!
       // pm_periodic ~61:  All.Asmth[0] = ASMTH * All.BoxSize / PMGRID; 
-      // pm_periodic/potential: asmth2 = 2\pi All.Asmth[0] / All.BoxSize;
+      // pm_priodic/potential: asmth2 = 2\pi All.Asmth[0] / All.BoxSize;
       // convolves with a factor: fac = All.G / (M_PI * All.BoxSize);
 
-      // This later stuff will be in a loop, that's why we use one plan
-      performConvolution(plan, newtonKGreen, 1/*2*M_PI*All.Asmth[0]/All.BoxSize*/, oRes, oResI);
+      for() {
+	
+	performConvolution(plan, GreensFxns[n][m], 1/*2*M_PI*All.Asmth[0]/All.BoxSize*/, oRes, oResI);
       
-      printf("Z: %f, Max m: %d, size of oRes: %d\n", 2*M_PI*All.Asmth[0]/All.BoxSize, gadgetToTPM(NTAB), NGRAVS_TPM_N);
-      for(i = 0; i < NTAB; i++) {
-	u = 3.0 / NTAB * (i + 0.5);
- 
-	// DEBUG #1: Output the values
-	printf("%d %d %f %f %f\n", i, gadgetToTPM(i)/2, u, oResI[gadgetToTPM(i)/2], erf(u));
+	printf("Z: %f, Max m: %d, size of oRes: %d\n", 2*M_PI*All.Asmth[0]/All.BoxSize, gadgetToTPM(NTAB), NGRAVS_TPM_N);
+	for(i = 0; i < NTAB; i++) {
+	  u = 3.0 / NTAB * (i + 0.5);
+
+	  // Initialize the tables appropriately
+	  //
+	  // What we want to be computing is the additive term, instead of just factor:
+	
+	  // 
+	  // DEBUG #1: Output the values
+	  printf("%d %d %f %f %f\n", i, gadgetToTPM(i)/2, u, oResI[gadgetToTPM(i)/2], erf(u));
+	}
       }
-      
       // Outside of the loop, clean up
       free(oRes);
       free(oResI);
