@@ -285,6 +285,7 @@ void init_grav_maps(void) {
 
   int i, j;
   int counts[N_GRAVS];
+  int n;
 
 #ifdef BAMTEST
   double q;
@@ -469,6 +470,18 @@ void init_grav_maps(void) {
 	printf("ngravs: Green's functions for particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
 	endrun(1000);
       }
+
+      // Verify that the TreePM smoothing distance is not inside the tree softening distance!
+      for(n = 1; n < 6; ++n) {
+	
+	// NTAB/asmthfac = NTAB / (0.5 / All.Asmth[0] * (NTAB/3))
+	if(All.ForceSoftening[n] > 2*3*All.Asmth[0]) {
+
+	  printf("ngravs: TreePM transition scale %f sits within the spline softened force radius %f for particle type %d.   This is not permitted.",
+		 2*3*All.Asmth[0], All.ForceSoftening[n], n);
+	  endrun(1034);
+	}
+      }
 #endif
 
 #if defined OUTPUT_POTENTIAL || defined PMGRID
@@ -551,11 +564,11 @@ double neg_newtonian_pot(double target, double source, double h, double r, long 
 // NOTE 2: The factor of 4\pi is missing, and G is 1 in internal Gadget-2 units
 //
 
-/*! This is the box periodic Green's function for a point source of unit mass
+/*! This is the box periodic NORMALIZED Green's function for a point source of unit mass
  */
 double pgdelta(double target, double source, double k2, double k, long N) {
 
-  return 1.0/k2;
+  return 1.0;
 }
 
 /*! This is the **inverted** box periodic Green's function for a point source of unit mass, 
@@ -563,7 +576,7 @@ double pgdelta(double target, double source, double k2, double k, long N) {
  */
 double neg_pgdelta(double target, double source, double k2, double k, long N) {
 
-  return -1.0/k2;
+  return -1.0;
 }
 
 /*! This is the Plummer spline used by GADGET-2

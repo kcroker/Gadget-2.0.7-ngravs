@@ -504,7 +504,9 @@ void pmforce_periodic(void)
 		  // Note that the greens function can only ever depend on |k| since the force is 
 		  // isotropic!
 		  //
-		  smth *= (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1);
+		  
+		  // Note we explicitly divide by k2 to undo the normalization
+		  smth *= (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1) / k2;
 		  /* end deconvolution */
 		  
 		  // KC 12/4/14
@@ -1029,7 +1031,7 @@ void pmpotential_periodic(void)
 	      if(k2 > 0)
 		{
 		  // KC 10/5/14
-		  smth = -exp(-k2 * asmth2) * (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1) * fac;
+		  smth = -exp(-k2 * asmth2) * (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1) * fac / k2;
 		  /* do deconvolution */
 		  fx = fy = fz = 1;
 		  if(kx != 0)

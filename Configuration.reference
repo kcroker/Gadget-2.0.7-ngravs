@@ -35,7 +35,7 @@ PeriodicBoundariesOn     1
 %  Caracteristics of run
 
 TimeBegin           0.0        % Begin of the simulation
-TimeMax	            0.0        % End of the simulation
+TimeMax	            0.05        % End of the simulation
 
 Omega0	              0
 OmegaLambda           0

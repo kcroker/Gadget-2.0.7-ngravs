@@ -32,7 +32,7 @@ static int last;
 /*! variables for short-range lookup table */
 // KC 29.9.15 (European style)
 // Extended to accommodate all the possible smoothings
-static float tabfac, shortrange_table[N_GRAVS][N_GRAVS][NTAB], shortrange_table_potential[N_GRAVS][N_GRAVS][NTAB];
+static double tabfac, shortrange_fourier[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_int[N_GRAVS][N_GRAVS][NTAB];
 
 /*! toggles after first tree-memory allocation, has only influence on log-files */
 static int first_flag = 0;
@@ -1643,6 +1643,7 @@ int force_treeevaluate_shortrange(int target, int mode)
   double r2min, r2max;
   char nintflag;
   int pgravtype, whichGrav;
+  double r2inv;
 
 #ifdef NGRAVS_ACCUMULATOR
   long Nparticles[N_GRAVS];
@@ -1959,32 +1960,24 @@ int force_treeevaluate_shortrange(int target, int mode)
 
 	 r = sqrt(r2[sG]);
 	 
-	 if(r >= h)
+	 if(r >= h) {
+	   
+	   // KC 10/23/15
+	   // Only play suppression games if we are outside the softening radius!
 	   fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
+	   tabindex = (int) (asmthfac * r);
+	   if(tabindex < NTAB)
+	     fac += 2 * 1.0/r2[sG] * (1.0/r * shortrange_fourier_int[pgravtype][sG][tabindex] - shortrange_fourier[pgravtype][sG][tabindex]);
+	 }
 	 else 
 	   fac = (*AccelSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
 	 
-	 tabindex = (int) (asmthfac * r);
-
-	  if(tabindex < NTAB)
-	    {
- 	      // KC 10/22/15
-	      // Cringe.
-	      r2inv = 1/r2[sG];
-	 
-	      // KC 27.9.15
-	      // Note that dx[sG] is the direction vector between the interactors: 
-	      //  \vec{r} = \hat{r}/r
-	      // By definition in ngravs, force laws include the factor of 1/r
-	      //
-	      // There is also an N_\perp here which is set to 1, you will see it below...
-	      acc_x += dx[sG] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
-	      acc_y += dy[sG] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
-	      acc_z += dz[sG] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
+	 acc_x += dx[sG] * fac;
+	 acc_y += dy[sG] * fac;
+	 acc_z += dz[sG] * fac;
 	      
-	      // Flag to record interactions
-	      nintflag = 1;
-	    }
+	 // Flag to record interactions
+	 nintflag = 1;
       }
       else {
 	
@@ -2002,6 +1995,21 @@ int force_treeevaluate_shortrange(int target, int mode)
 #else3
 	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, 1);
 #endif
+
+	    // KC 10/23/15
+	    // Only play supression games if we are outside of the softening region.
+	    // The softening region should be well below the the mesh size anyway!!
+	    // This is because the Fourier PM computation does not take into consideration
+	    // the softened spline!  Thanks to Springle for pointing out this behaviour
+	    // as the origin of a dumb behaviour in an included initial condition months ago.
+	    tabindex = (int) (asmthfac * r);
+	    if(tabindex < NTAB) {
+#ifdef NGRAVS_ACCUMULATOR
+	      fac += 2 * 1.0/r2[whichGrav] * Nparticles[whichGrav] * (1.0/r * shortrange_fourier_int[pgravtype][whichGrav][tabindex] - shortrange_fourier[pgravtype][whichGrav][tabindex]);
+#else
+	      fac += 2 * 1.0/r2[whichGrav] * (1.0/r * shortrange_fourier_int[pgravtype][whichGrav][tabindex] - shortrange_fourier[pgravtype][whichGrav][tabindex]);
+#endif	      
+	    }
 	  }
 	  else {
 #ifdef NGRAVS_ACCUMULATOR
@@ -2010,32 +2018,13 @@ int force_treeevaluate_shortrange(int target, int mode)
 	    fac = (*AccelSplines[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, 1);
 #endif
 	  }
-	  tabindex = (int) (asmthfac * r);
 
-	  if(tabindex < NTAB)
-	    {
-	      // KC 10/22/15
-	      // Cringe.
-	      r2inv = 1/r2[sG];
-
-#ifdef NGRAVS_ACCUMULATOR
-
-	      // KC 10/22/15 Note that this is the correct assumption:
-	      // We fourier transformed a green's function, which will
-	      // have the (necessarily fixed for periodic modes)
-	      // active mass programmed into it.  The correct behaviour
-	      // is then to scale linearly the contribution.
-	      acc_x += dx[whichGrav] * (fac - 2 * r2inv * Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
-	      acc_y += dy[whichGrav] * (fac - 2 * r2inv * Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
-	      acc_z += dz[whichGrav] * (fac - 2 * r2inv * Nparticles[whichGrav]*shortrange_table[pgravtype][sG][tabindex]);
-#else
-	      acc_x += dx[whichGrav] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
-	      acc_y += dy[whichGrav] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
-	      acc_z += dz[whichGrav] * (fac - 2 * r2inv * shortrange_table[pgravtype][sG][tabindex]);
-#endif	      
-	      // Flag to record interactions
-	      nintflag = 1;
-	    }
+	  acc_x += dx[whichGrav] * fac;
+	  acc_y += dy[whichGrav] * fac;
+	  acc_z += dz[whichGrav] * fac;
+	  
+	  // Flag to record interactions
+	  nintflag = 1;
 	}      
       }
 
@@ -3117,7 +3106,7 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
 
 	if(tabindex < NTAB)
 	  {
-	    fac = shortrange_table_potential[pgravtype][sG][tabindex];
+	    // fac = shortrange_table_potential[pgravtype][sG][tabindex];
 
 	    if(r >= h)
 	      pot -= fac * (*PotentialFxns[pgravtype][sG])(pmass, mass[sG], h, r, 1);
@@ -3138,7 +3127,7 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
 
 	  if(tabindex < NTAB)
 	    {
-	      fac = shortrange_table_potential[pgravtype][i][tabindex];
+	      //	      fac = shortrange_table_potential[pgravtype][i][tabindex];
 
 	      if(r >= h) {
 #ifdef NGRAVS_ACCUMULATOR
@@ -3185,9 +3174,9 @@ void force_treeallocate(int maxnodes, int maxpart)
   double u;
 
   // KC 27.9.15
-  double *oRes, *oResI;
   fftw_plan plan;
-  int m, n;
+  int nA, nB;
+  double *oRes, *oResI;
 
   MaxNodes = maxnodes;
 
@@ -3237,40 +3226,43 @@ void force_treeallocate(int maxnodes, int maxpart)
       // are doing PMGRID, and since we will need to be integrating things numerically for ngravs
       // this may take a bit of time (though it only needs to be performed once)
 #ifdef PMGRID
-      //      tabfac = NTAB / 3.0;
-      oRes = (double *)malloc(sizeof(double)*NGRAVS_TPM_N);
-      oResI = (double *)malloc(sizeof(double)*NGRAVS_TPM_N);
       
       plan = fftw_create_plan(NGRAVS_TPM_N, FFTW_BACKWARD, FFTW_ESTIMATE);
-      
-      // Note!!
-      // pm_periodic ~61:  All.Asmth[0] = ASMTH * All.BoxSize / PMGRID; 
-      // pm_priodic/potential: asmth2 = 2\pi All.Asmth[0] / All.BoxSize;
-      // convolves with a factor: fac = All.G / (M_PI * All.BoxSize);
-
-      for() {
+      oRes = (double *)malloc(sizeof(double)*NGRAVS_TPM_N);
+      oResI = (double *)malloc(sizeof(double)*NGRAVS_TPM_N);
 	
-	performConvolution(plan, GreensFxns[n][m], 1/*2*M_PI*All.Asmth[0]/All.BoxSize*/, oRes, oResI);
-      
-	printf("Z: %f, Max m: %d, size of oRes: %d\n", 2*M_PI*All.Asmth[0]/All.BoxSize, gadgetToTPM(NTAB), NGRAVS_TPM_N);
-	for(i = 0; i < NTAB; i++) {
-	  u = 3.0 / NTAB * (i + 0.5);
+      if(!(oRes && oResI)) {
+	printf("ngravs: Failed to allocate temporary TreePM workspaces for initialization\n");
+	endrun(1045);
+      }
+     
+      // Sources
+      for(nA = 0; nA < N_GRAVS; ++nA) {
 
-	  // Initialize the tables appropriately
-	  //
-	  // What we want to be computing is the additive term, instead of just factor:
-	
-	  // 
-	  // DEBUG #1: Output the values
-	  printf("%d %d %f %f %f\n", i, gadgetToTPM(i)/2, u, oResI[gadgetToTPM(i)/2], erf(u));
+	// Receivers
+	for(nB = 0; nB < N_GRAVS; ++nB) {
+	  
+	  performConvolution(plan, GreensFxns[nB][nA], 1, oRes, oResI);
+
+	  // Downsample
+	  for(i = 0; i < NTAB; ++i) {
+	    
+	    shortrange_fourier[nB][nA][i] = oRes[gadgetToTPM(i)/2];
+	    shortrange_fourier_int[nB][nA][i] = oResI[gadgetToTPM(i)/2];
+	    
+	    //	    u = 3.0 / NTAB * (i + 0.5);
+	    //fprintf(stderr, "%d %d %d %f %f %f\n", nB, nA, i, oResI[gadgetToTPM(i)/2], erf(u), oResI[gadgetToTPM(i)/2]/erf(u));
+	  }
 	}
       }
-      // Outside of the loop, clean up
+      
+      // Cleanup
       free(oRes);
       free(oResI);
       fftw_destroy_plan(plan);
 
-      endrun(1444);
+      printf("\nngravs: Finished computing short-range tables with FFT\n");
+      //      exit(0);
 #endif
     }
 }
