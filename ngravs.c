@@ -202,9 +202,7 @@ double fourierIntegrand(double k, gravity normKGreen, double Z) {
   
   double k2 = k*k;
 
-  // Will probably be other facs here, not same as pm_periodic though because this is a 1D xform
-  // 2\pi from phi integration, 1/\pi from inverse unnormalized Fourier transform.
-  return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z) * 2; 
+  return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z); //*2; 
 }
 
 //
@@ -470,18 +468,6 @@ void init_grav_maps(void) {
 	printf("ngravs: Green's functions for particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
 	endrun(1000);
       }
-
-      // Verify that the TreePM smoothing distance is not inside the tree softening distance!
-      for(n = 1; n < 6; ++n) {
-	
-	// NTAB/asmthfac = NTAB / (0.5 / All.Asmth[0] * (NTAB/3))
-	if(All.ForceSoftening[n] > 2*3*All.Asmth[0]) {
-
-	  printf("ngravs: TreePM transition scale %f sits within the spline softened force radius %f for particle type %d.   This is not permitted.",
-		 2*3*All.Asmth[0], All.ForceSoftening[n], n);
-	  endrun(1034);
-	}
-      }
 #endif
 
 #if defined OUTPUT_POTENTIAL || defined PMGRID
@@ -533,7 +519,7 @@ double none(double target, double source, double h, double r, long N){
 double newtonian(double target, double source, double h, double r, long N) {
 
   // Note newtonian does not violate SEP
-  return source / (h * r);
+  return source / (h);
 } 
 
 /*! This is **inverted** Newtonian gravity, for use in the Hohmann & Wolfarth scenario

@@ -1964,10 +1964,19 @@ int force_treeevaluate_shortrange(int target, int mode)
 	   
 	   // KC 10/23/15
 	   // Only play suppression games if we are outside the softening radius!
+	   // asmthfac = 1/2asmth * (NTAB/3)
 	   fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
 	   tabindex = (int) (asmthfac * r);
-	   if(tabindex < NTAB)
-	     fac += 2 * 1.0/r2[sG] * (1.0/r * shortrange_fourier_int[pgravtype][sG][tabindex] - shortrange_fourier[pgravtype][sG][tabindex]);
+
+
+	   // tabindex should be 1 when r*asmthfac = 1
+
+	   if(tabindex < NTAB) {
+	     //	     fprintf(stderr, "a %d %f %f\n", tabindex, r, shortrange_fourier_int[pgravtype][sG][tabindex] - r*shortrange_fourier[pgravtype][sG][tabindex]);
+	     fac -= mass[sG]*(shortrange_fourier_int[pgravtype][sG][tabindex]/(r*r) - shortrange_fourier[pgravtype][sG][tabindex]/r);
+	   }
+
+	    fac /= r;
 	 }
 	 else 
 	   fac = (*AccelSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
@@ -1992,7 +2001,7 @@ int force_treeevaluate_shortrange(int target, int mode)
 #ifdef NGRAVS_ACCUMULATOR
 
 	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, Nparticles[whichGrav]);
-#else3
+#else
 	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, 1);
 #endif
 
@@ -2003,13 +2012,14 @@ int force_treeevaluate_shortrange(int target, int mode)
 	    // the softened spline!  Thanks to Springle for pointing out this behaviour
 	    // as the origin of a dumb behaviour in an included initial condition months ago.
 	    tabindex = (int) (asmthfac * r);
+	    
 	    if(tabindex < NTAB) {
-#ifdef NGRAVS_ACCUMULATOR
-	      fac += 2 * 1.0/r2[whichGrav] * Nparticles[whichGrav] * (1.0/r * shortrange_fourier_int[pgravtype][whichGrav][tabindex] - shortrange_fourier[pgravtype][whichGrav][tabindex]);
-#else
-	      fac += 2 * 1.0/r2[whichGrav] * (1.0/r * shortrange_fourier_int[pgravtype][whichGrav][tabindex] - shortrange_fourier[pgravtype][whichGrav][tabindex]);
-#endif	      
+	      //fprintf(stderr, "b %d %f %f\n", tabindex, r, (shortrange_fourier_int[pgravtype][whichGrav][tabindex] - r*shortrange_fourier[pgravtype][whichGrav][tabindex]));
+	      fac -= mass[whichGrav] * (shortrange_fourier_int[pgravtype][whichGrav][tabindex]/(r*r) - shortrange_fourier[pgravtype][whichGrav][tabindex]/r);
 	    }
+	  
+	    // Now divide
+	    fac /= r;
 	  }
 	  else {
 #ifdef NGRAVS_ACCUMULATOR
@@ -3177,6 +3187,7 @@ void force_treeallocate(int maxnodes, int maxpart)
   fftw_plan plan;
   int nA, nB;
   double *oRes, *oResI;
+  double r;
 
   MaxNodes = maxnodes;
 
@@ -3242,15 +3253,39 @@ void force_treeallocate(int maxnodes, int maxpart)
 	// Receivers
 	for(nB = 0; nB < N_GRAVS; ++nB) {
 	  
-	  performConvolution(plan, GreensFxns[nB][nA], 1, oRes, oResI);
+	  // I assumed a dimensionful k in my transform code, Gadget-2 does not >_<
+	  performConvolution(plan, GreensFxns[nB][nA], 2*M_PI*(double)ASMTH*All.BoxSize/(double)PMGRID, oRes, oResI);
 
 	  // Downsample
 	  for(i = 0; i < NTAB; ++i) {
 	    
+	    // WORKING COMBO ZETA
 	    shortrange_fourier[nB][nA][i] = oRes[gadgetToTPM(i)/2];
 	    shortrange_fourier_int[nB][nA][i] = oResI[gadgetToTPM(i)/2];
+	  
+	    /* shortrange_fourier[nB][nA][i] = oRes[gadgetToTPM(i)/2]; */
+	    /* shortrange_fourier_int[nB][nA][i] = oResI[gadgetToTPM(i)/2]; */
+	  
+	    // Debug. Print out the potential and force behaviour for inspection
+	    // Everything in front of first parenthetical SHOULD be 1, changing it for dicking purposes
 	    
-	    //	    u = 3.0 / NTAB * (i + 0.5);
+	    // WORKING COMBO ZETA
+	    // BROKEN WITH non-Reference configuration!!
+	    u = (3.0 / NTAB * (i + 0.5));
+	    //	    u = 3.0 / NTAB * i;
+	    r = i / (0.5 / All.Asmth[0] * (NTAB / 3.0));
+
+	    /* u = (3.0 * i/ NTAB) + 3.0/(2*NTAB); */
+	    /* r = i / (0.5 / All.Asmth[0] * (NTAB / 3.0)); */
+	    
+	    
+	    // XXX Note accel fxns are wonk-ordered compared to fourier.  Need to fix this.
+	    fprintf(stderr, "%f %f %f %f\n",
+	    	    r,
+	    	    (*AccelFxns[nA][nB])(1, 1, r*r, r, 1) * (erfc(u) + 2.0 * u / sqrt(M_PI) * exp(-u * u)),
+	    	    (*AccelFxns[nA][nB])(1, 1, r*r, r, 1) - 2*(shortrange_fourier_int[nB][nA][i]/(r*r) - shortrange_fourier[nB][nA][i]/r),
+	    	    shortrange_fourier_int[nB][nA][i]/erf(u));
+	
 	    //fprintf(stderr, "%d %d %d %f %f %f\n", nB, nA, i, oResI[gadgetToTPM(i)/2], erf(u), oResI[gadgetToTPM(i)/2]/erf(u));
 	  }
 	}
@@ -3262,7 +3297,7 @@ void force_treeallocate(int maxnodes, int maxpart)
       fftw_destroy_plan(plan);
 
       printf("\nngravs: Finished computing short-range tables with FFT\n");
-      //      exit(0);
+          exit(0);
 #endif
     }
 }
@@ -3362,8 +3397,12 @@ int force_treeevaluate_direct(int target, int mode)
 
       u = r * h_inv;
 
+      // KC 10.25.15
+      // We divide by r here so that we don't need to do it 
+      // prematurely on the actual acceleration term elsewhere, since
+      // we now need to perform subtractions in the TreePM regime
       if(u >= 1)
-	fac = (*AccelFxns[pgravtype][TypeToGrav[P[i].Type]])(pmass, P[i].Mass, r2, r, 1);
+	fac = (*AccelFxns[pgravtype][TypeToGrav[P[i].Type]])(pmass, P[i].Mass, r2, r, 1) / r;
       else
 	fac = (*AccelSplines[pgravtype][TypeToGrav[P[i].Type]])(pmass, P[i].Mass, h, r, 1);
 	

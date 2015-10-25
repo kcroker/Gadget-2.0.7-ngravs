@@ -41,7 +41,15 @@ void begrun(void)
 				   exchange during force computation */
   set_units();
 
+  // KC 10/24/15
+  // We now do this BEFORE anything else,
+  // so we get Asmth set correctly
+#ifdef PMGRID
+  long_range_init();
+#endif
+
   init_grav_maps();  /* KC 8/9/14 Establish the mappings */ 
+
   
 #if defined(PERIODIC) && (!defined(PMGRID) || defined(FORCETEST))
   lattice_init();
@@ -53,9 +61,6 @@ void begrun(void)
   random_generator = gsl_rng_alloc(gsl_rng_ranlxd1);
   gsl_rng_set(random_generator, 42);	/* start-up seed */
 
-#ifdef PMGRID
-  long_range_init();
-#endif
 
   All.TimeLastRestartFile = CPUThisRun;
 

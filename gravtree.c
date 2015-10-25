@@ -293,7 +293,7 @@ void gravity_tree(void)
   // KC 10/22/14
   // At this point, GravAcce[j] will contain the tree-walked force.  If PMGRID is on, then this will
   // be the shortrange stuff
-#if defined PMGRID && defined DEBUG_N_GRAVS_SHORTTREE
+#if defined PMGRID && defined DEBUG_NGRAVS_SHORTTREE
   for(i = 0; i < NumPart; ++i) 
         fprintf(stderr, "%d\t%e\t%e\t%e\t%e\t%e\t%e\t%d\n", P[i].ID, P[i].Pos[0], P[i].Pos[1], P[i].Pos[2], P[i].GravAccel[0], P[i].GravAccel[1], P[i].GravAccel[2], P[i].Type);
   endrun(5555);
