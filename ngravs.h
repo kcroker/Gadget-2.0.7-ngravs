@@ -31,8 +31,10 @@ double plummer_pot(double target, double source, double h, double r, long N);
 double neg_plummer_pot(double target, double source, double h, double r, long N);
 
 // Functions required for convolution
-int gadgetToTPM(int i);
-void performConvolution(fftw_plan plan, gravity normKGreen, double Z, double *oRes, double *oResI);
+int gadgetToFourier(int i);
+int performConvolution(fftw_plan plan, gravity normKGreen, double Z, double *oRes, double *oResI);
+fftw_plan ngravsConvolutionInit(void);
+double mTox(int m);
 
 // Initialization functions for ngravs extension
 void wire_grav_maps(void);

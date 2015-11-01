@@ -176,52 +176,85 @@ void wire_grav_maps(void) {
 
 
 ///////////////// BEGIN FOURIER INTEGRATION ROUTINES /////////////////////
-// 
-// The NGRAVS_TPM_N below gives samples in x-space at (1/2Ntab, 2/2Ntab, ..., (6Ntab + 3)/2Ntab)/2 
-// The additional factor of 0.5 (2x as many samples in k) is required to critically sample!
-// 
-// Gadget-2 uses only a subset of these samples in position space (NTAB of them ;) ), but 
-// taking many more is a good idea, especially because we need to be integrating, so that's good
 //
-//#define NTAB 1000  // AMPLITUDE AND WIDTH STABLE
-//#define NGRAVS_TPM_N 2*(6*NTAB+3) // AMPLITUDE AND WIDTH STABLE.  Divided out the FFTW N!
+// These routines can compute the reqired shortrange tabulations of the generic
+// force laws from the k-space greens functions to very near machine accuracy.  
+//
+// Please see the ngravs paper for very detailed discussion of the behaviour here
+//
 
-double jTok(int j, double Z) {
+// How much to oversample by
+// WHY: This determines the magnitude of the error term: 
+#define OL 10
 
-  return 2*M_PI * j * NTAB / (double)(Z * NGRAVS_TPM_N);
+// How much further (by this multiplicative factor) to go in x-space 
+// than the required 3-\epsilon
+// WHY: This (essentially) determines how deep into k-space to probe the function
+#define LEN 4
+
+// This is then the required number of samples.
+#define NGRAVS_TPM_N (12*NTAB*OL*LEN-6*OL*LEN+2)
+
+// Note: the product of mTox * jTok = 2\pi mj/N_G
+//       which is what FFTW expects
+double jTok(int m, double Z) {
+
+  return 2.0*M_PI*m*NTAB*6.0*OL/(3.0*(12*NTAB*OL*LEN-6*OL*LEN+2));
 }
 
-double mTox(int m, double Z) {
+double mTox(int j) {
   
-  return m*Z/(double)NTAB;
+  return 3.0*j/(6.0*NTAB*OL);
 }
 
-//
-// To keep it consistent with the other code
+int gadgetToFourier(int j) {
+
+  return OL*(6*j + 3);
+}
+
+int fourierToGadget(int i) {
+
+  return (i - 3*OL)/(6*OL);
+}
+
 double fourierIntegrand(double k, gravity normKGreen, double Z) {
   
   double k2 = k*k;
-
-  return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z); //*2; 
+  
+  // Note: the 2*\pi factor shows up here
+  return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
 }
 
-//
-// Note that the k-space greens' functions seem to be dimensionless expressions
-// with the Boxsize dimension explicitly reintroduced in the usual Gadget-2
-// through fac, Asmth[0], etc. in pm_periodic.c
-//
 double newtonKGreen(double target, double source, double k2, double k, long N) {
   
-  return 1.0; // Normalized Yukawa -> k2 / (k2 + 0.5);
+  return 1.0; // Normalized Yukawa -> 
+  //return k2 / (k2 + 0.5);
 }
 
-void performConvolution(fftw_plan plan, gravity normKGreen, double Z, double *oRes, double *oResI) {
+int performConvolution(fftw_plan plan, gravity normKGreen, double Z, double *oRes, double *oResI) {
   
-  fftw_complex in[NGRAVS_TPM_N], out[NGRAVS_TPM_N];
+  fftw_complex *in, *out;
   int m,j;
-  double sum;
+  double sum, norm;
  
-  // Zero out all arrays first 
+  in = (fftw_complex *)malloc(sizeof(fftw_complex) * NGRAVS_TPM_N);
+  out = (fftw_complex *)malloc(sizeof(fftw_complex) * NGRAVS_TPM_N);
+  if(!in || !out)
+    return 1;
+  
+  /* // Debug your mappings?! */
+  /* printf("NTAB: %d\nNGRAVS_TPM_N: %d\nNGRAVS_TPM_N/2: %d\n3/(2NTAB): %f\n", NTAB, NGRAVS_TPM_N, NGRAVS_TPM_N/2, 3.0/(2*NTAB)); */
+  /* for(m = 0; m < NTAB; ++m) { */
+  /*   printf("%d %d %d %f\n", m, gadgetToFourier(m), fourierToGadget(gadgetToFourier(m)), mTox(gadgetToFourier(m))); */
+  /* } */
+  
+  /* printf("\n"); */
+  /* for(j = 0; j < NGRAVS_TPM_N/2; ++j) { */
+  /*   printf("%d %d %d %f %d\n", j, fourierToGadget(j), gadgetToFourier(fourierToGadget(j)), mTox(j), gadgetToFourier(fourierToGadget(j)) - j); */
+  /* } */
+  /* exit(0); */
+
+  // Zero out all arrays first
   for(j = 0; j < NGRAVS_TPM_N; ++j) {
     in[j].re = 0;
     in[j].im = 0;
@@ -237,38 +270,48 @@ void performConvolution(fftw_plan plan, gravity normKGreen, double Z, double *oR
 
   // 2) Xform
   fftw_one(plan, in, out);
+  norm = 2.0*M_PI*NTAB*6.0*OL/(3.0*(12*NTAB*OL*LEN-6*OL*LEN+2));
 
-  // 2.5) Do silly mapping (check ths for errors, jeeez)
-  // Adjust normalization!
-  //
-  // Note that the normalization comes from the change of variables in the
-  // non-unitary angular Fourier xform (wiki column 4)
-  //
-  // We also confirm that it is integrating effectively over symmetric limits!
-  for(m = 0; m < NGRAVS_TPM_N; ++m)
-    oRes[m] = out[m].re * NTAB / (Z*NGRAVS_TPM_N);
+  /* // Debug */
+  /* // Make sure the transform is behaving reasonably */
+  /* for(m = 0; m < NGRAVS_TPM_N; ++m) */
+  /*   printf("%.15f %.15f\n", mTox(m), out[m].re*norm); */
+  /* exit(0); */
 
-  // 3) Integrate the dumb way so we can keep the sampling interval the same
-  //    in the integrated function. 
+  sum = NGRAVS_TPM_N;
+
+  for(m = 0; m < NTAB; ++m)
+    oRes[m] = out[gadgetToFourier(m)].re * norm;
+ 
+  // 3) Integrate so as to constrain the error correctly:
+  // Simpsons 3/8 rule
   sum = 0.0;
-  oResI[0] = 0.0;
-  for(m = 1; m < NGRAVS_TPM_N; ++m) {
-    sum += (mTox(m, Z) - mTox(m-1, Z)) * 0.5 * (oRes[m-1] + oRes[m]);
-    oResI[m] = sum;
+  in[0].re = 0.0;
+  for(m = 0; m < NGRAVS_TPM_N-3; m += 3) {
+    sum += (mTox(m+3) - mTox(m)) * 0.125 * norm * (out[m].re + 3.0*out[m+1].re + 3.0*out[m+2].re + out[m+3].re);
+    
+    // Put it where you'd expect to find it
+    in[m/3+1].re = sum;
   }
+
+  // 3.5) Downsample
+  for(m = 0; m < NTAB; ++m)
+    oResI[m] = in[gadgetToFourier(m)/3].re;
+
+  /* // Debug */
+  /* // Make sure the transform is behaving reasonably */
+  /* for(m = 0; m < NTAB; ++m) */
+  /*   printf("%.15f %.15f\n", mTox(gadgetToFourier(m)), oResI[m]); */
+  /* exit(0); */
+
+  free(in);
+  free(out);
+  return 0;
 }
 
-//
-// Takes a Gadget-2 i and returns the appropriate m to give
-// this value in the table:
-//
-//    m / 4Ntab = 3(i + 1/2)/Ntab
-// So:
-//    m = 12i + 6
-//
-int gadgetToTPM(int i) {
+fftw_plan ngravsConvolutionInit(void) {
 
-  return (12*i + 6);
+  return fftw_create_plan(NGRAVS_TPM_N, FFTW_BACKWARD, FFTW_ESTIMATE);
 }
 
 //////////////////////// END FOURIER INTEGRATION ROUTINES //////////
@@ -545,11 +588,12 @@ double neg_newtonian_pot(double target, double source, double h, double r, long 
   return -source / r;
 }
 
-// KC 10/18/14
-// NOTE: Green's functions are not inverted from their usual sign
-// NOTE 2: The factor of 4\pi is missing, and G is 1 in internal Gadget-2 units
+// KC 10/30/15
 //
-
+// The k that gadget uses is dimensionless between [-PMGRID/2, PMGRID/2].  The original form 
+// plugged into the convolution is also this dimensionless form.  So, your Greens function will need to 
+// be dimensionless.  The length scale is All.BoxSize.  
+//
 /*! This is the box periodic NORMALIZED Green's function for a point source of unit mass
  */
 double pgdelta(double target, double source, double k2, double k, long N) {

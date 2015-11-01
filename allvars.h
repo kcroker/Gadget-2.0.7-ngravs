@@ -133,8 +133,6 @@ typedef  long long  peanokey;    /*!< defines the variable type used for Peano-H
 
 
 //////////// BEGIN ngravs Extension ////////////////
-#define NGRAVS_TPM_N 2*(6*NTAB+3)
-
 extern char *NgravsNames[N_GRAVS][N_GRAVS];
 extern int TypeToGrav[6];
 extern int NgravLocal[N_GRAVS];

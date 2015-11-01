@@ -378,13 +378,20 @@ void pm_setup_nonperiodic_kernel(void)
 	      
 	      u = 0.5 * r / (((double) ASMTH) / GRID);
 	    
-	      // KC 27.9.15
+	      // KC 11/1/15
 	      // XXX
-	      // This will need to be fixed for the smoothing.
+	      // This again assumes Newton.  fml
+	      // This can be replaced with the actual values of the shortrange force. 
+	      // So we can keep non-periodic investigations.  Thank god.
+	      // However, the Fourier Kernel itself is going to suffer (badly) from stepping.
 	      //
-	      // Again, its not a simple factor applied in postion space, but the additive adjustment.
-	      // Integrate it out explicitly again here, as we don't seem to mind the timewaste of using 
-	      // the explicit u here (since we only do this once at the start of the program)
+	      // What really should be done is to just construct the non-periodic k-space kernel
+	      // as Hockney does by piecing together 8 shifted copies so that k-space potential
+	      // at the edges of the active octant are vacuum boundaries.
+	      //
+	      // This way, we avoid the need to work backward from the now very difficult to compute
+	      // shortrange force.
+	 
 	      fac = 1 - erfc(u);
 
 	      if(r > 0) {
@@ -437,10 +444,9 @@ void pm_setup_nonperiodic_kernel(void)
 	      
 	      u = 0.5 * r / (((double) ASMTH) / GRID);
 
-	      // KC 27.9.15
-	      // XXX
-	      // Again, this will need to be adjusted for the generic smoothing that can now
-	      // take place.
+	      // KC 11/1/15
+	      // XXX!!
+	      // See above comments.  
 	      fac = erfc(u * All.Asmth[1] / All.Asmth[0]) - erfc(u);
 
 	      if(r > 0) {

@@ -44,6 +44,10 @@ void begrun(void)
   // KC 10/24/15
   // We now do this BEFORE anything else,
   // so we get Asmth set correctly
+  //
+  // XXX
+  // What about long_range_init_regionsize?
+  //
 #ifdef PMGRID
   long_range_init();
 #endif

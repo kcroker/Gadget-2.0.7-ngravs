@@ -32,7 +32,8 @@ static int last;
 /*! variables for short-range lookup table */
 // KC 29.9.15 (European style)
 // Extended to accommodate all the possible smoothings
-static double tabfac, shortrange_fourier[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_int[N_GRAVS][N_GRAVS][NTAB];
+
+static double shortrange_fourier[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_int[N_GRAVS][N_GRAVS][NTAB];
 
 /*! toggles after first tree-memory allocation, has only influence on log-files */
 static int first_flag = 0;
@@ -1968,13 +1969,9 @@ int force_treeevaluate_shortrange(int target, int mode)
 	   fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
 	   tabindex = (int) (asmthfac * r);
 
-
-	   // tabindex should be 1 when r*asmthfac = 1
-
-	   if(tabindex < NTAB) {
-	     //	     fprintf(stderr, "a %d %f %f\n", tabindex, r, shortrange_fourier_int[pgravtype][sG][tabindex] - r*shortrange_fourier[pgravtype][sG][tabindex]);
-	     fac -= mass[sG]*(shortrange_fourier_int[pgravtype][sG][tabindex]/(r*r) - shortrange_fourier[pgravtype][sG][tabindex]/r);
-	   }
+	   if(tabindex < NTAB)
+	     fac -= mass[sG]/M_PI*(shortrange_fourier_int[pgravtype][sG][tabindex]/(r2[sG]) - 
+				   shortrange_fourier[pgravtype][sG][tabindex]/(2*All.Asmth[0]*r));
 
 	    fac /= r;
 	 }
@@ -2013,10 +2010,9 @@ int force_treeevaluate_shortrange(int target, int mode)
 	    // as the origin of a dumb behaviour in an included initial condition months ago.
 	    tabindex = (int) (asmthfac * r);
 	    
-	    if(tabindex < NTAB) {
-	      //fprintf(stderr, "b %d %f %f\n", tabindex, r, (shortrange_fourier_int[pgravtype][whichGrav][tabindex] - r*shortrange_fourier[pgravtype][whichGrav][tabindex]));
-	      fac -= mass[whichGrav] * (shortrange_fourier_int[pgravtype][whichGrav][tabindex]/(r*r) - shortrange_fourier[pgravtype][whichGrav][tabindex]/r);
-	    }
+	    if(tabindex < NTAB)
+	      fac -= mass[whichGrav]/M_PI*(shortrange_fourier_int[pgravtype][whichGrav][tabindex]/(r2[whichGrav]) - 
+					   shortrange_fourier[pgravtype][whichGrav][tabindex]/(2*All.Asmth[0]*r));
 	  
 	    // Now divide
 	    fac /= r;
@@ -3186,8 +3182,7 @@ void force_treeallocate(int maxnodes, int maxpart)
   // KC 27.9.15
   fftw_plan plan;
   int nA, nB;
-  double *oRes, *oResI;
-  double r;
+  double r, Z;
 
   MaxNodes = maxnodes;
 
@@ -3237,67 +3232,68 @@ void force_treeallocate(int maxnodes, int maxpart)
       // are doing PMGRID, and since we will need to be integrating things numerically for ngravs
       // this may take a bit of time (though it only needs to be performed once)
 #ifdef PMGRID
+
+      plan = ngravsConvolutionInit();
+      Z = 0.5; //2*M_PI*(double)ASMTH/(double)PMGRID;
       
-      plan = fftw_create_plan(NGRAVS_TPM_N, FFTW_BACKWARD, FFTW_ESTIMATE);
-      oRes = (double *)malloc(sizeof(double)*NGRAVS_TPM_N);
-      oResI = (double *)malloc(sizeof(double)*NGRAVS_TPM_N);
-	
-      if(!(oRes && oResI)) {
-	printf("ngravs: Failed to allocate temporary TreePM workspaces for initialization\n");
-	endrun(1045);
-      }
+      // Confirmed correct Z behaviour in horizontal scaling.
      
+      printf("ngravs: tabulating shortrange correction factors for dimensionless transition scale %f...\n", Z);
+
       // Sources
       for(nA = 0; nA < N_GRAVS; ++nA) {
 
 	// Receivers
 	for(nB = 0; nB < N_GRAVS; ++nB) {
 	  
-	  // I assumed a dimensionful k in my transform code, Gadget-2 does not >_<
-	  performConvolution(plan, GreensFxns[nB][nA], 2*M_PI*(double)ASMTH*All.BoxSize/(double)PMGRID, oRes, oResI);
+	  i = performConvolution(plan, 
+				 GreensFxns[nB][nA], 
+				 Z,
+				 shortrange_fourier[nB][nA], 
+				 shortrange_fourier_int[nB][nA]);
+	  if(i) {
 
-	  // Downsample
+	    printf("ngravs: could not allocate memory for FFT.  Reduce OL and/or LEN and recompile.");
+	    endrun(1047);
+	  }
+	  
+	  // Debug
 	  for(i = 0; i < NTAB; ++i) {
 	    
-	    // WORKING COMBO ZETA
-	    shortrange_fourier[nB][nA][i] = oRes[gadgetToTPM(i)/2];
-	    shortrange_fourier_int[nB][nA][i] = oResI[gadgetToTPM(i)/2];
-	  
-	    /* shortrange_fourier[nB][nA][i] = oRes[gadgetToTPM(i)/2]; */
-	    /* shortrange_fourier_int[nB][nA][i] = oResI[gadgetToTPM(i)/2]; */
-	  
-	    // Debug. Print out the potential and force behaviour for inspection
-	    // Everything in front of first parenthetical SHOULD be 1, changing it for dicking purposes
-	    
-	    // WORKING COMBO ZETA
-	    // BROKEN WITH non-Reference configuration!!
-	    u = (3.0 / NTAB * (i + 0.5));
-	    //	    u = 3.0 / NTAB * i;
-	    r = i / (0.5 / All.Asmth[0] * (NTAB / 3.0));
+	    // Stock, forcetree.c:2679
+	    u = 3.0 / NTAB * (i + 0.5);
 
-	    /* u = (3.0 * i/ NTAB) + 3.0/(2*NTAB); */
-	    /* r = i / (0.5 / All.Asmth[0] * (NTAB / 3.0)); */
+	    //Stock, forcetree.c:1487 & 1718.  Note there WAS an implicit floor -> +0.5
+	    r = 6 * All.Asmth[0]*(i+0.5)/(double)NTAB; 
 	    
-	    
+	    // Now it is clear that u = r/2r_s
+
 	    // XXX Note accel fxns are wonk-ordered compared to fourier.  Need to fix this.
-	    fprintf(stderr, "%f %f %f %f\n",
-	    	    r,
-	    	    (*AccelFxns[nA][nB])(1, 1, r*r, r, 1) * (erfc(u) + 2.0 * u / sqrt(M_PI) * exp(-u * u)),
-	    	    (*AccelFxns[nA][nB])(1, 1, r*r, r, 1) - 2*(shortrange_fourier_int[nB][nA][i]/(r*r) - shortrange_fourier[nB][nA][i]/r),
-	    	    shortrange_fourier_int[nB][nA][i]/erf(u));
-	
-	    //fprintf(stderr, "%d %d %d %f %f %f\n", nB, nA, i, oResI[gadgetToTPM(i)/2], erf(u), oResI[gadgetToTPM(i)/2]/erf(u));
+	    // WORKS for newton.  Now use accel fxns and get it right.
+
+	    fprintf(stderr, "%.15e %.15e %.15e\n",
+		    u,
+		    (*AccelFxns[nB][nA])(1, 1, r*r, r, 1) - 1.0/M_PI*(shortrange_fourier_int[nB][nA][i]/(r*r) - shortrange_fourier[nB][nA][i]/(2*All.Asmth[0]*r)),
+		    (*AccelFxns[nB][nA])(1, 1, r*r, r, 1)*(erfc(u) + 2*u/sqrt(M_PI)*exp(-u * u)));
+		    
+	    /* fprintf(stderr, "%d %.15e %.15e %.15e %.15e %.15e %.15e %.15e\n", */
+	    /* 	    i, */
+	    /* 	    mTox(gadgetToFourier(i)), */
+	    /* 	    u, */
+	    /* 	    1.0 - 1.0/M_PI*shortrange_fourier_int[nB][nA][i], */
+	    /* 	    erfc(u), */
+	    /* 	    1.0 - 1.0/M_PI*(shortrange_fourier_int[nB][nA][i] - u*shortrange_fourier[nB][nA][i]), */
+	    /* 	    erfc(u) + 2.0 * u / sqrt(M_PI) * exp(-u * u), */
+	    /* 	    u*shortrange_fourier[nB][nA][i]); */
+		   
 	  }
 	}
       }
       
       // Cleanup
-      free(oRes);
-      free(oResI);
       fftw_destroy_plan(plan);
 
-      printf("\nngravs: Finished computing short-range tables with FFT\n");
-          exit(0);
+      printf("ngravs: Finished short-range correction tabulation with FFT\n");
 #endif
     }
 }
