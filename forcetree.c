@@ -1960,7 +1960,13 @@ int force_treeevaluate_shortrange(int target, int mode)
       if(sG > -1) {
 
 	 r = sqrt(r2[sG]);
-	 
+	 // sanity
+	 if(r > rcut) {
+
+	   printf("NOOOO NO NO NO NO.  r = %f, rcut = %f\n", r, rcut);
+	   endrun(6666);
+	 }
+
 	 if(r >= h) {
 	   
 	   // KC 10/23/15
@@ -1973,7 +1979,7 @@ int force_treeevaluate_shortrange(int target, int mode)
 	     fac -= mass[sG]/M_PI*(shortrange_fourier_int[pgravtype][sG][tabindex]/(r2[sG]) - 
 				   shortrange_fourier[pgravtype][sG][tabindex]/(2*All.Asmth[0]*r));
 
-	    fac /= r;
+	   fac /= r;
 	 }
 	 else 
 	   fac = (*AccelSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
@@ -1993,10 +1999,15 @@ int force_treeevaluate_shortrange(int target, int mode)
 	    continue;
 
 	  r = sqrt(r2[whichGrav]);
+	  // sanity
+	  if(r > rcut) {
+
+	    printf("(node) NOOOO NO NO NO NO.  r = %f, rcut = %f\n", r, rcut);
+	    endrun(6667);
+	  }
 
 	  if(r >= h) {
 #ifdef NGRAVS_ACCUMULATOR
-
 	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, Nparticles[whichGrav]);
 #else
 	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, 1);
@@ -3264,7 +3275,7 @@ void force_treeallocate(int maxnodes, int maxpart)
 	    u = 3.0 / NTAB * (i + 0.5);
 
 	    //Stock, forcetree.c:1487 & 1718.  Note there WAS an implicit floor -> +0.5
-	    r = 6 * All.Asmth[0]*(i+0.5)/(double)NTAB; 
+	    r = 6 * All.Asmth[0]*(i+0.5)/(double)NTAB;
 	    
 	    // Now it is clear that u = r/2r_s
 
@@ -3272,9 +3283,9 @@ void force_treeallocate(int maxnodes, int maxpart)
 	    // WORKS for newton.  Now use accel fxns and get it right.
 
 	    fprintf(stderr, "%.15e %.15e %.15e\n",
-		    u,
-		    (*AccelFxns[nB][nA])(1, 1, r*r, r, 1) - 1.0/M_PI*(shortrange_fourier_int[nB][nA][i]/(r*r) - shortrange_fourier[nB][nA][i]/(2*All.Asmth[0]*r)),
-		    (*AccelFxns[nB][nA])(1, 1, r*r, r, 1)*(erfc(u) + 2*u/sqrt(M_PI)*exp(-u * u)));
+	  	    u,
+	  	    (*AccelFxns[nB][nA])(1, 1, r*r, r, 1) - 1.0/M_PI*(shortrange_fourier_int[nB][nA][i]/(r*r) - shortrange_fourier[nB][nA][i]/(2*All.Asmth[0]*r)),
+	  	    (*AccelFxns[nB][nA])(1, 1, r*r, r, 1)*(erfc(u) + 2*u/sqrt(M_PI)*exp(-u * u)));
 		    
 	    /* fprintf(stderr, "%d %.15e %.15e %.15e %.15e %.15e %.15e %.15e\n", */
 	    /* 	    i, */
@@ -3289,7 +3300,7 @@ void force_treeallocate(int maxnodes, int maxpart)
 	  }
 	}
       }
-      
+
       // Cleanup
       fftw_destroy_plan(plan);
 

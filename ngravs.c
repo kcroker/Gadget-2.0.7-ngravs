@@ -185,7 +185,7 @@ void wire_grav_maps(void) {
 
 // How much to oversample by
 // WHY: This determines the magnitude of the error term: 
-#define OL 10
+#define OL 5
 
 // How much further (by this multiplicative factor) to go in x-space 
 // than the required 3-\epsilon
@@ -570,7 +570,7 @@ double newtonian(double target, double source, double h, double r, long N) {
 double neg_newtonian(double target, double source, double h, double r, long N) {
 
   // Note newtonian does not violate SEP
-  return -source / (h * r);
+  return -source / (h);
 } 
 
 /*! This is the usual Newtonian gravitational potential
@@ -594,6 +594,7 @@ double neg_newtonian_pot(double target, double source, double h, double r, long 
 // plugged into the convolution is also this dimensionless form.  So, your Greens function will need to 
 // be dimensionless.  The length scale is All.BoxSize.  
 //
+// FACTORS ARE SUCH THAT: 4\pi G/k^2 \becomes 1.0
 /*! This is the box periodic NORMALIZED Green's function for a point source of unit mass
  */
 double pgdelta(double target, double source, double k2, double k, long N) {
@@ -611,6 +612,8 @@ double neg_pgdelta(double target, double source, double k2, double k, long N) {
 
 /*! This is the Plummer spline used by GADGET-2
  */
+// XXX spline includes 1/r factor, so can't just be dropped into the
+// existing routines anymore since we work with 1/r2 not 1/r3 (ready for the lengthful-dx)
 double plummer(double target, double source, double h, double r, long N) {
 
   double h_inv;
