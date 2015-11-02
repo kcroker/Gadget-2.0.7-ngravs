@@ -1645,6 +1645,7 @@ int force_treeevaluate_shortrange(int target, int mode)
   char nintflag;
   int pgravtype, whichGrav;
   double r2inv;
+  double u;
 
 #ifdef NGRAVS_ACCUMULATOR
   long Nparticles[N_GRAVS];
@@ -1973,8 +1974,10 @@ int force_treeevaluate_shortrange(int target, int mode)
 	     // Only play suppression games if we are outside the softening radius!
 	     // asmthfac = 1/2asmth * (NTAB/3)
 	     fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
-	     fac -= mass[sG]/M_PI*(shortrange_fourier_int[pgravtype][sG][tabindex]/(r2[sG]) - 
-				   shortrange_fourier[pgravtype][sG][tabindex]/(2*All.Asmth[0]*r));
+	     
+	     u = 3.0 / NTAB * (tabindex + 0.5);
+	     fac -= mass[sG]/(M_PI*4*All.Asmth[0]*All.Asmth[0])*(shortrange_fourier_int[pgravtype][sG][tabindex]/(u*u) - 
+								 shortrange_fourier[pgravtype][sG][tabindex]/(u));
 	     
 	     fac /= r;
 	   }
@@ -1997,7 +2000,7 @@ int force_treeevaluate_shortrange(int target, int mode)
 	    continue;
 
 	  r = sqrt(r2[whichGrav]);
-	  
+
 	  tabindex = (int) (asmthfac * r);
 		    
 	  if(tabindex < NTAB) {
@@ -2015,8 +2018,12 @@ int force_treeevaluate_shortrange(int target, int mode)
 	      // This is because the Fourier PM computation does not take into consideration
 	      // the softened spline!  Thanks to Springle for pointing out this behaviour
 	      // as the origin of a dumb behaviour in an included initial condition months ago.
-	      fac -= mass[whichGrav]/M_PI*(shortrange_fourier_int[pgravtype][whichGrav][tabindex]/(r2[whichGrav]) - 
-					   shortrange_fourier[pgravtype][whichGrav][tabindex]/(2*All.Asmth[0]*r));
+	      u = 3.0 / NTAB * (tabindex + 0.5);
+	      fac -= mass[whichGrav]/(4*All.Asmth[0]*All.Asmth[0]*M_PI)*(shortrange_fourier_int[pgravtype][whichGrav][tabindex]/(u*u) - 
+									 shortrange_fourier[pgravtype][whichGrav][tabindex]/u);
+	 
+	      //fac -= mass[whichGrav]/M_PI*(shortrange_fourier_int[pgravtype][whichGrav][tabindex]/(r2[whichGrav]) - 
+	      //				   shortrange_fourier[pgravtype][whichGrav][tabindex]/(2*All.Asmth[0]*r));
 	  
 	      // Now divide
 	      fac /= r;
