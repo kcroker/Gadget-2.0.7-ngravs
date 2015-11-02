@@ -1960,36 +1960,34 @@ int force_treeevaluate_shortrange(int target, int mode)
       if(sG > -1) {
 
 	 r = sqrt(r2[sG]);
-	 // sanity
-	 if(r > rcut) {
+	 
+	 tabindex = (int) (asmthfac * r);
+	 
+	 // KC 11/2/15
+	 // DO you even lift bro?
+	 // Note we *may* be outside the cutoff radius...
+	 if(tabindex < NTAB) {
 
-	   printf("NOOOO NO NO NO NO.  r = %f, rcut = %f\n", r, rcut);
-	   endrun(6666);
-	 }
-
-	 if(r >= h) {
-	   
-	   // KC 10/23/15
-	   // Only play suppression games if we are outside the softening radius!
-	   // asmthfac = 1/2asmth * (NTAB/3)
-	   fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
-	   tabindex = (int) (asmthfac * r);
-
-	   if(tabindex < NTAB)
+	   if(r >= h) {
+	     // KC 10/23/15
+	     // Only play suppression games if we are outside the softening radius!
+	     // asmthfac = 1/2asmth * (NTAB/3)
+	     fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
 	     fac -= mass[sG]/M_PI*(shortrange_fourier_int[pgravtype][sG][tabindex]/(r2[sG]) - 
 				   shortrange_fourier[pgravtype][sG][tabindex]/(2*All.Asmth[0]*r));
-
-	   fac /= r;
-	 }
-	 else 
-	   fac = (*AccelSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
+	     
+	     fac /= r;
+	   }
+	   else 
+	     fac = (*AccelSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
 	 
-	 acc_x += dx[sG] * fac;
-	 acc_y += dy[sG] * fac;
-	 acc_z += dz[sG] * fac;
+	   acc_x += dx[sG] * fac;
+	   acc_y += dy[sG] * fac;
+	   acc_z += dz[sG] * fac;
 	      
-	 // Flag to record interactions
-	 nintflag = 1;
+	   // Flag to record interactions
+	   nintflag = 1;
+	 }
       }
       else {
 	
@@ -1999,49 +1997,45 @@ int force_treeevaluate_shortrange(int target, int mode)
 	    continue;
 
 	  r = sqrt(r2[whichGrav]);
-	  // sanity
-	  if(r > rcut) {
+	  
+	  tabindex = (int) (asmthfac * r);
+		    
+	  if(tabindex < NTAB) {
 
-	    printf("(node) NOOOO NO NO NO NO.  r = %f, rcut = %f\n", r, rcut);
-	    endrun(6667);
-	  }
-
-	  if(r >= h) {
+	    if(r >= h) {
 #ifdef NGRAVS_ACCUMULATOR
-	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, Nparticles[whichGrav]);
+	      fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, Nparticles[whichGrav]);
 #else
-	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, 1);
+	      fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, 1);
 #endif
 
-	    // KC 10/23/15
-	    // Only play supression games if we are outside of the softening region.
-	    // The softening region should be well below the the mesh size anyway!!
-	    // This is because the Fourier PM computation does not take into consideration
-	    // the softened spline!  Thanks to Springle for pointing out this behaviour
-	    // as the origin of a dumb behaviour in an included initial condition months ago.
-	    tabindex = (int) (asmthfac * r);
-	    
-	    if(tabindex < NTAB)
+	      // KC 10/23/15
+	      // Only play supression games if we are outside of the softening region.
+	      // The softening region should be well below the the mesh size anyway!!
+	      // This is because the Fourier PM computation does not take into consideration
+	      // the softened spline!  Thanks to Springle for pointing out this behaviour
+	      // as the origin of a dumb behaviour in an included initial condition months ago.
 	      fac -= mass[whichGrav]/M_PI*(shortrange_fourier_int[pgravtype][whichGrav][tabindex]/(r2[whichGrav]) - 
 					   shortrange_fourier[pgravtype][whichGrav][tabindex]/(2*All.Asmth[0]*r));
 	  
-	    // Now divide
-	    fac /= r;
-	  }
-	  else {
+	      // Now divide
+	      fac /= r;
+	    }
+	    else {
 #ifdef NGRAVS_ACCUMULATOR
-	    fac = (*AccelSplines[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, Nparticles[whichGrav]);
+	      fac = (*AccelSplines[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, Nparticles[whichGrav]);
 #else
-	    fac = (*AccelSplines[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, 1);
+	      fac = (*AccelSplines[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, 1);
 #endif
-	  }
+	    }
 
-	  acc_x += dx[whichGrav] * fac;
-	  acc_y += dy[whichGrav] * fac;
-	  acc_z += dz[whichGrav] * fac;
+	    acc_x += dx[whichGrav] * fac;
+	    acc_y += dy[whichGrav] * fac;
+	    acc_z += dz[whichGrav] * fac;
 	  
-	  // Flag to record interactions
-	  nintflag = 1;
+	    // Flag to record interactions
+	    nintflag = 1;
+	  }
 	}      
       }
 
