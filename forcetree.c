@@ -33,7 +33,7 @@ static int last;
 // KC 29.9.15 (European style)
 // Extended to accommodate all the possible smoothings
 
-static double shortrange_fourier[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_int[N_GRAVS][N_GRAVS][NTAB];
+static double shortrange_fourier_pot[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_force[N_GRAVS][N_GRAVS][NTAB];
 
 /*! toggles after first tree-memory allocation, has only influence on log-files */
 static int first_flag = 0;
@@ -1645,8 +1645,8 @@ int force_treeevaluate_shortrange(int target, int mode)
   char nintflag;
   int pgravtype, whichGrav;
   double r2inv;
-  double u;
-
+  double utor2wpi;
+  
 #ifdef NGRAVS_ACCUMULATOR
   long Nparticles[N_GRAVS];
 #endif
@@ -1712,6 +1712,9 @@ int force_treeevaluate_shortrange(int target, int mode)
   rcut2 = rcut * rcut;
 
   asmthfac = 0.5 / asmth * (NTAB / 3.0);
+
+  // KC 11/3/15
+  utor2wpi = 1.0/(M_PI*4*asmth*asmth);
 
   // KC 1/31/15
   // We will be computing these in the individual splines anyway
@@ -1972,13 +1975,8 @@ int force_treeevaluate_shortrange(int target, int mode)
 	   if(r >= h) {
 	     // KC 10/23/15
 	     // Only play suppression games if we are outside the softening radius!
-	     // asmthfac = 1/2asmth * (NTAB/3)
 	     fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
-	     
-	     u = 3.0 / NTAB * (tabindex + 0.5);
-	     fac -= mass[sG]/(M_PI*4*All.Asmth[0]*All.Asmth[0])*(shortrange_fourier_int[pgravtype][sG][tabindex]/(u*u) - 
-								 shortrange_fourier[pgravtype][sG][tabindex]/(u));
-	     
+	     fac -= mass[sG] * utor2wpi * shortrange_fourier_force[pgravtype][sG][tabindex];
 	     fac /= r;
 	   }
 	   else 
@@ -2011,21 +2009,7 @@ int force_treeevaluate_shortrange(int target, int mode)
 #else
 	      fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, 1);
 #endif
-
-	      // KC 10/23/15
-	      // Only play supression games if we are outside of the softening region.
-	      // The softening region should be well below the the mesh size anyway!!
-	      // This is because the Fourier PM computation does not take into consideration
-	      // the softened spline!  Thanks to Springle for pointing out this behaviour
-	      // as the origin of a dumb behaviour in an included initial condition months ago.
-	      u = 3.0 / NTAB * (tabindex + 0.5);
-	      fac -= mass[whichGrav]/(4*All.Asmth[0]*All.Asmth[0]*M_PI)*(shortrange_fourier_int[pgravtype][whichGrav][tabindex]/(u*u) - 
-									 shortrange_fourier[pgravtype][whichGrav][tabindex]/u);
-	 
-	      //fac -= mass[whichGrav]/M_PI*(shortrange_fourier_int[pgravtype][whichGrav][tabindex]/(r2[whichGrav]) - 
-	      //				   shortrange_fourier[pgravtype][whichGrav][tabindex]/(2*All.Asmth[0]*r));
-	  
-	      // Now divide
+	      fac -= mass[whichGrav] * utor2wpi * shortrange_fourier_force[pgravtype][whichGrav][tabindex];
 	      fac /= r;
 	    }
 	    else {
@@ -2800,8 +2784,8 @@ void force_treeevaluate_potential(int target, int mode)
 
 #ifdef PMGRID
 /*! This function computes the short-range potential when the TreePM
- *  algorithm is used. This potential is the Newtonian potential, modified
- *  by a complementary error function.
+ *  algorithm is used. These are the IFT of the user-specified k-space potentials
+ *  multiplied by a gaussian cutoff.
  */
 void force_treeevaluate_potential_shortrange(int target, int mode)
 {
@@ -2826,6 +2810,7 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
 #ifdef NGRAVS_ACCUMULATOR
   long Nparticles[N_GRAVS];
 #endif
+  double utorwpi;
 
 #ifdef PERIODIC
   double boxsize, boxhalf;
@@ -2874,6 +2859,9 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
     }
 #endif
   asmthfac = 0.5 / asmth * (NTAB / 3.0);
+
+  // KC 11/3/15
+  utorwpi = 2*M_PI*asmth;
 
 #ifndef UNEQUALSOFTENINGS
   h = All.ForceSoftening[ptype];
@@ -3124,10 +3112,9 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
 
 	if(tabindex < NTAB)
 	  {
-	    // fac = shortrange_table_potential[pgravtype][sG][tabindex];
-
 	    if(r >= h)
-	      pot -= fac * (*PotentialFxns[pgravtype][sG])(pmass, mass[sG], h, r, 1);
+	      pot -= (*PotentialFxns[pgravtype][sG])(pmass, mass[sG], h, r, 1) - 
+		utorwpi * shortrange_fourier_pot[pgravtype][sG][tabindex];
 	    else
 	      pot += fac * (*PotentialSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
 	  }
@@ -3145,21 +3132,24 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
 
 	  if(tabindex < NTAB)
 	    {
-	      //	      fac = shortrange_table_potential[pgravtype][i][tabindex];
-
 	      if(r >= h) {
 #ifdef NGRAVS_ACCUMULATOR
-		pot -= fac * (*PotentialFxns[pgravtype][i])(pmass, mass[i], h, r, Nparticles[i]);
+		pot -= (*PotentialFxns[pgravtype][i])(pmass, mass[i], h, r, Nparticles[i]) -
+		  utorwpi * shortrange_fourier_pot[pgravtype][i][tabindex];
 #else
-		pot -= fac * (*PotentialFxns[pgravtype][i])(pmass, mass[i], h, r, 1);
+		pot -= (*PotentialFxns[pgravtype][i])(pmass, mass[i], h, r, 1);
 #endif
 	      }
 	      else
 		{
 #ifdef NGRAVS_ACCUMULATOR
-		  pot += fac * (*PotentialSplines[pgravtype][i])(pmass, mass[i], h, r, Nparticles[i]);
+		  // KC 11/3/15
+		  // Note that this code originally applied a softening to the splined potential, which is 
+		  // not correct because the Fourier contribution to the potential does not 
+		  // account for potential splining.  We have therefore removed this adjustment.
+		  pot += (*PotentialSplines[pgravtype][i])(pmass, mass[i], h, r, Nparticles[i]);
 #else
-		  pot += fac * (*PotentialSplines[pgravtype][i])(pmass, mass[i], h, r, 1);
+		  pot += (*PotentialSplines[pgravtype][i])(pmass, mass[i], h, r, 1);
 #endif
 		}
 	    }
@@ -3246,10 +3236,8 @@ void force_treeallocate(int maxnodes, int maxpart)
 #ifdef PMGRID
 
       plan = ngravsConvolutionInit();
-      Z = 0.5; //2*M_PI*(double)ASMTH/(double)PMGRID;
+      Z = 0.5; 
       
-      // Confirmed correct Z behaviour in horizontal scaling.
-     
       printf("ngravs: tabulating shortrange correction factors for dimensionless transition scale %f...\n", Z);
 
       // Sources
@@ -3261,43 +3249,27 @@ void force_treeallocate(int maxnodes, int maxpart)
 	  i = performConvolution(plan, 
 				 GreensFxns[nB][nA], 
 				 Z,
-				 shortrange_fourier[nB][nA], 
-				 shortrange_fourier_int[nB][nA]);
+				 shortrange_fourier_pot[nB][nA], 
+				 shortrange_fourier_force[nB][nA]);
 	  if(i) {
 
 	    printf("ngravs: could not allocate memory for FFT.  Reduce OL and/or LEN and recompile.");
 	    endrun(1047);
 	  }
 	  
-	  // Debug
+	  // pot and force arrays don't yet contain the appropriate correction factors.  
+	  // Here we make the adjustments
 	  for(i = 0; i < NTAB; ++i) {
 	    
 	    // Stock, forcetree.c:2679
 	    u = 3.0 / NTAB * (i + 0.5);
 
-	    //Stock, forcetree.c:1487 & 1718.  Note there WAS an implicit floor -> +0.5
-	    r = 6 * All.Asmth[0]*(i+0.5)/(double)NTAB;
-	    
-	    // Now it is clear that u = r/2r_s
+	    // Divide by the appropriate values of u to save computation time in actual use
+	    shortrange_fourier_force[nB][nA][i] /= u*u;
+	    shortrange_fourier_pot[nB][nA][i] /= u;
 
-	    // XXX Note accel fxns are wonk-ordered compared to fourier.  Need to fix this.
-	    // WORKS for newton.  Now use accel fxns and get it right.
-
-	    fprintf(stderr, "%.15e %.15e %.15e\n",
-	  	    u,
-	  	    (*AccelFxns[nB][nA])(1, 1, r*r, r, 1) - 1.0/M_PI*(shortrange_fourier_int[nB][nA][i]/(r*r) - shortrange_fourier[nB][nA][i]/(2*All.Asmth[0]*r)),
-	  	    (*AccelFxns[nB][nA])(1, 1, r*r, r, 1)*(erfc(u) + 2*u/sqrt(M_PI)*exp(-u * u)));
-		    
-	    /* fprintf(stderr, "%d %.15e %.15e %.15e %.15e %.15e %.15e %.15e\n", */
-	    /* 	    i, */
-	    /* 	    mTox(gadgetToFourier(i)), */
-	    /* 	    u, */
-	    /* 	    1.0 - 1.0/M_PI*shortrange_fourier_int[nB][nA][i], */
-	    /* 	    erfc(u), */
-	    /* 	    1.0 - 1.0/M_PI*(shortrange_fourier_int[nB][nA][i] - u*shortrange_fourier[nB][nA][i]), */
-	    /* 	    erfc(u) + 2.0 * u / sqrt(M_PI) * exp(-u * u), */
-	    /* 	    u*shortrange_fourier[nB][nA][i]); */
-		   
+	    // Precompute buddy!
+	    shortrange_fourier_force[nB][nA][i] -= shortrange_fourier_pot[nB][nA][i];
 	  }
 	}
       }

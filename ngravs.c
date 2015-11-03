@@ -127,7 +127,7 @@ void wire_grav_maps(void) {
   ///////////////// ACCUMULATOR TESTING RUNS ////////////////////////////
   //
   // This code specifically tests the N_\perp addition with a force law
-  // (BAM) which violates SEP.  Here the N_\perp correction is an exact
+  // (BAM) where the N_\perp correction is an exact
   // correction.
   //
   ///////////////////////////////////////////////////////////////////////
