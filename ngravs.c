@@ -138,10 +138,14 @@ void wire_grav_maps(void) {
   NgravsNames[1][1] = "BAMBAM";
 
   AccelFxns[0][0] = newtonian;
+  AccelFxns[0][1] = sourcebambaryon;
+  AccelFxns[1][0] = sourcebaryonbam;
+  AccelFxns[1][1] = bambam;
+
   AccelSplines[0][0] = plummer;
-  AccelFxns[0][1] = AccelSplines[0][1] = sourcebambaryon;
-  AccelFxns[1][0] = AccelSplines[1][0] = sourcebaryonbam;
-  AccelFxns[1][1] = AccelSplines[1][1] = bambam;
+  AccelSplines[0][1] = sourcebambaryon_spline; 
+  AccelSplines[1][0] = sourcebaryonbam_spline;
+  AccelSplines[1][1] = bambam_spline; 
 
 #if defined OUTPUTPOTENTIAL || defined PMGRID
   // These won't be used, as the simulation is non-periodic
@@ -221,7 +225,6 @@ double fourierIntegrand(double k, gravity normKGreen, double Z) {
   
   double k2 = k*k;
   
-  // Note: the 2*\pi factor shows up here
   return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
 }
 
@@ -284,7 +287,7 @@ int performConvolution(fftw_plan plan, gravity normKGreen, double Z, double *oRe
     oRes[m] = out[gadgetToFourier(m)].re * norm;
  
   // 3) Integrate so as to constrain the error correctly:
-  // Simpsons 3/8 rule
+  // Newton-Cotes 4-point rule
   sum = 0.0;
   in[0].re = 0.0;
   for(m = 0; m < NGRAVS_TPM_N-3; m += 3) {
@@ -547,22 +550,18 @@ double none(double target, double source, double h, double r, long N){
 // WARNING: Note that, presumably to eliminate a plethora of unnecessary negations,
 //          Gadget-2 works with the positive of the acceleration.  
 //
-// ALL ACCELERATION SIGNS APPEARING HERE ARE TO BE INVERTED FROM WHAT YOU NORMALLY WOULD WRITE
-//
-// WARNING: These give the normalized accelerations!  They include an additional factor of 1/r
-//          so that taking the vector magnitude of this function's return value times
-//          the dx_i gives the correct force.
+// ALL ACCELERATION *SIGNS* APPEARING HERE ARE TO BE INVERTED FROM WHAT YOU NORMALLY WOULD WRITE
 //
 // NOTE OPTIMIZATION: since an AccelFxn does not use h as a softening, we pass in
-//                    the r^2 (since it is already computed), so that we only have 
-//                    to ever perform multiplications.
+//                    the r^2 (since it is already computed), so that we can perform 
+//                    fewer multiplications
 //  
 /*! This is Newtonian gravity, and is the usual baryon-baryon interaction 
  */
 double newtonian(double target, double source, double h, double r, long N) {
 
   // Note newtonian does not violate SEP
-  return source / (h);
+  return source / h;
 } 
 
 /*! This is **inverted** Newtonian gravity, for use in the Hohmann & Wolfarth scenario
@@ -570,7 +569,7 @@ double newtonian(double target, double source, double h, double r, long N) {
 double neg_newtonian(double target, double source, double h, double r, long N) {
 
   // Note newtonian does not violate SEP
-  return -source / (h);
+  return -source / h;
 } 
 
 /*! This is the usual Newtonian gravitational potential
@@ -612,8 +611,11 @@ double neg_pgdelta(double target, double source, double k2, double k, long N) {
 
 /*! This is the Plummer spline used by GADGET-2
  */
-// XXX spline includes 1/r factor, so can't just be dropped into the
-// existing routines anymore since we work with 1/r2 not 1/r3 (ready for the lengthful-dx)
+// 
+// WARNING: Acceleration splines contain an additional factor of 1/r (or 1/h) 
+//          as this division is not carried out for splined forces in forcetree.c
+//          This is because splines need to divide by the softening scale instead
+//          of the radius when computing their forces.
 double plummer(double target, double source, double h, double r, long N) {
 
   double h_inv;
@@ -724,10 +726,38 @@ double bambam(double target, double source, double h, double r, long N) {
     // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
     // the differentiate termwise to get the force
     // also multiply by -1: F \def -\grad pot
-    // also must divide by an additional 1/r to give the unit vector in code!
-    //
-    return rho * eta3 * (2.0/3.0 - 4.0*reta2/5.0 + 6.0*reta2*reta2/7.0);
+    
+    
+    // KC 11/3/15
+    // r put back in because forcetree.c divides it out now
+    return rho * eta3 * (2.0*r/3.0 - 4.0*reta2*r/5.0 + 6.0*reta2*reta2*r/7.0);
   }
+  else
+    // KC 11/3/15 - corrected radial factor
+    return rho * eta3 * (atan(reta)/(reta2*eta) - 1.0/(reta*eta*(1+reta2)));
+}
+
+double bambam_spline(double target, double source, double h, double r, long N) {
+  
+  // Note apparent SEP violation
+  // Note naturally softened
+  // Note adjustment of the internal scale by N.  Thus the scale is determined by the average mass content of the cell.
+  // In the case where the all BAM halos have the same mass parameter, this correction is the *exact* correction.
+
+  double eta, rho;
+  double eta3;
+  double reta, reta2;
+
+  eta = 4.0*M_PI*BAM_EPSILON/(target+source/N);
+  rho = 2*target*source/M_PI;
+
+  reta = r * eta;
+  reta2 = reta * reta;
+  eta3 = eta * eta * eta;
+
+  // KC 11/3/15 - corrected radial factor
+  if(reta < 0.1)
+    return rho * eta3 * (2.0/3.0 - 4.0*reta2/5.0 + 6.0*reta2*reta2/7.0);
   else
     return rho * eta3 * (atan(reta)/(reta2*reta) - 1.0/(reta2*(1+reta2)));
 }
@@ -738,7 +768,7 @@ double bambam(double target, double source, double h, double r, long N) {
  * is not the force, but the adjustment to the acceleration of the target.  
  * So you have to be careful here. 
  */
-double sourcebambaryon(double target, double source, double h, double r, long N) {
+double sourcebambaryon_spline(double target, double source, double h, double r, long N) {
 
   double eta, rho;
   double eta3;
@@ -766,13 +796,33 @@ double sourcebambaryon(double target, double source, double h, double r, long N)
     return rho * eta3 * (atan(reta)/(reta2*reta) - 1.0/(reta2*(1+reta2)));
 }
 
+double sourcebambaryon(double target, double source, double h, double r, long N) {
+
+  double eta, rho;
+  double eta3;
+  double reta, reta2;
+
+  rho = 2*target*source/M_PI;
+  eta = 4.0*M_PI*BAM_EPSILON*N/source;
+  
+  reta = r * eta;
+  reta2 = reta * reta;
+  eta3 = eta * eta * eta;
+
+  // KC 11/3/15 - corrected radial factor
+  if(reta < 0.1)
+    return rho * eta3 * (2.0*r/3.0 - 4.0*reta2*r/5.0 + 6.0*reta2*reta2*r/7.0);
+  else
+    return rho * eta3 * (atan(reta)/(reta2*eta) - 1.0/(reta*eta*(1+reta2)));
+}
+
 /*! This is the BAM-Baryon interaction sourced by a baryon.
   Note that here the target is a BAM!!
   The force laws are necessarily symmetric, but the computation GADGET-2 uses
   is not the force, but the adjustment to the acceleration of the target.  
   So you have to be careful here.
  */
-double sourcebaryonbam(double target, double source, double h, double r, long N) {
+double sourcebaryonbam_spline(double target, double source, double h, double r, long N) {
 
   // Note apparent SEP violation
   // Note naturally softened
@@ -800,6 +850,29 @@ double sourcebaryonbam(double target, double source, double h, double r, long N)
   }
   else
     return rho * eta3 * (atan(reta)/(reta2*reta) - 1.0/(reta2*(1+reta2)));
+}
+
+double sourcebaryonbam(double target, double source, double h, double r, long N) {
+
+  // Note apparent SEP violation
+  // Note naturally softened
+  double eta, rho;
+  double eta3;
+  double reta, reta2;
+
+  eta = 4.0*M_PI*BAM_EPSILON/target;
+  rho = 2*target*source/M_PI;
+
+  reta = r * eta;
+  reta2 = reta * reta;
+  eta3 = eta * eta * eta;
+ 
+  // KC 11/3/15
+  // Adjusted radial factor
+  if(reta < 0.1)
+    return rho * eta3 * (2.0*r/3.0 - 4.0*reta2*r/5.0 + 6.0*reta2*reta2*r/7.0);
+  else
+    return rho * eta3 * (atan(reta)/(reta2*eta) - 1.0/(reta*eta*(1+reta2)));
 }
 
 /*! This is the BAM-BAM potential (or free-space Greens fxn in position representation)
