@@ -1,7 +1,7 @@
 %  Relevant files
 
-InitCondFile  	  tpm_ft_ic
-OutputDir         ./tpm_force_accuracy
+InitCondFile  	  GalaxyCollision.IC
+OutputDir         ./
 
 EnergyFile         energy.txt
 InfoFile           info.txt
@@ -30,18 +30,18 @@ ComovingIntegrationOn    0
 
 TypeOfTimestepCriterion  0
 OutputListOn             0
-PeriodicBoundariesOn     1
+PeriodicBoundariesOn     0
 
 %  Caracteristics of run
 
 TimeBegin           0.0        % Begin of the simulation
-TimeMax	            0.05        % End of the simulation
+TimeMax	            2.0        % End of the simulation
 
 Omega0	              0
 OmegaLambda           0
 OmegaBaryon           0
 HubbleParam         1.0
-BoxSize              100
+BoxSize               0
 
 % Output frequency
 
@@ -90,7 +90,7 @@ MinGasTemp             0
 % Memory allocation
 
 PartAllocFactor       1.5
-TreeAllocFactor       100
+TreeAllocFactor       8
 BufferSize            25          % in MByte
 
 
@@ -108,7 +108,7 @@ GravityConstantInternal  0
 % to the second gravitational interaction (1).  These interactions are defined in ngravs.c and ngravs.h
 GravityGas 0
 GravityHalo 0 
-GravityDisk 0 
+GravityDisk 1 
 GravityBulge 0
 GravityStars 0
 GravityBndry 0
@@ -131,4 +131,33 @@ SofteningBulgeMaxPhys     1.0
 SofteningStarsMaxPhys     1.0
 SofteningBndryMaxPhys     1.0
 
+
+
+
 MaxRMSDisplacementFac 0.2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -15,6 +15,11 @@
 #     Set this to the number of distinct gravitational types you wish to consider.
 #     Influences runtimes and memory consumption, so choose the minimum that you need.
 #
+# - NTAB:
+#     Set this to the number of points you wish to use when tabulating the shortrange
+#     correction to the tree force in TreePM mode.  For reference, 2048 gives Gadget-2
+#     force performance for Pure Newtonian runs in ngravs.
+#
 # - NGRAVS_ACCUMULATOR:
 #     Enable to track the number of particles contained within tree nodes.  This information
 #     is then accurately provided to AccelFxns and SplineFxns for making an accurate monopole 
@@ -28,6 +33,7 @@
 #
 #----------------------------------------------------------------------------- 
 OPT  +=   -DN_GRAVS=2
+OPT  +=   -DNTAB=2048
 #OPT  +=   -DNGRAVS_ACCUMULATOR
 #OPT  +=   -DNGRAVS_ACCUMULATOR_TESTING
 #OPT +=   -DNGRAVS_L3VIOLATION
