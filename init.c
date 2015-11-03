@@ -59,6 +59,7 @@ void init(void)
 
   set_softenings();
 
+#ifdef PMGRID
   // KC 10/25/15
   // Now that All.ForceSoftening is set, we can do some sanity.
   // Verify that the TreePM smoothing distance is not inside the tree softening distance!
@@ -75,6 +76,7 @@ void init(void)
       printf("ngravs: TreePM transition scale %f, softened force radius %f for particle type %d. Ok.\n", 
 	     2*3*All.Asmth[0], All.ForceSoftening[i], i);
   }
+#endif
 
   All.NumCurrentTiStep = 0;	/* setup some counters */
   All.SnapshotFileCount = 0;
