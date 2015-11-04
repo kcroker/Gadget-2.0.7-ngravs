@@ -129,6 +129,10 @@ struct sph_particle_data
 
 /* Variables for NGRAV extension 
  */
+#ifdef PMGRID
+double shortrange_fourier_pot[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_force[N_GRAVS][N_GRAVS][NTAB];
+#endif
+
 char *NgravsNames[N_GRAVS][N_GRAVS];
 int TypeToGrav[6];
 int NgravLocal[N_GRAVS];

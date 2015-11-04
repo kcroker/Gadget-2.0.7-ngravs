@@ -359,7 +359,16 @@ void init_grav_maps(void) {
   // KC 10/17/14
   // Code consistency checks
   if(ThisTask == 0) {
-    
+
+#ifdef PLACEHIRESREGION
+    printf("ngravs: High-resolution mesh implementation in progress.  Email kcroker@phys.hawaii.edu for status.");
+    endrun(1000);
+#endif
+
+#if defined PMGRID && !defined PERIODIC
+    printf("ngravs: In this version, non-periodic k-space greens determined by FFT of *tabulated* values.  Full transformation implementation in progress.  For now, verify sanity of outputs!");
+#endif
+
 #if !defined PEANOHILBERT && (defined PMGRID || defined PLACEHIRESREGION || defined PERIODIC)
     printf("ngravs: Gravitational type ordering required for ngravs extension of Fourier mesh code.  This ordering has been implemented on top of Peano-Hilbert ordering within the local task.  Please enable PEANOHILBERT and recompile.\n");
     endrun(1000);

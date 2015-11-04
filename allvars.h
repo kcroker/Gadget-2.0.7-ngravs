@@ -133,6 +133,10 @@ typedef  long long  peanokey;    /*!< defines the variable type used for Peano-H
 
 
 //////////// BEGIN ngravs Extension ////////////////
+#ifdef PMGRID
+extern double shortrange_fourier_pot[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_force[N_GRAVS][N_GRAVS][NTAB];
+#endif
+
 extern char *NgravsNames[N_GRAVS][N_GRAVS];
 extern int TypeToGrav[6];
 extern int NgravLocal[N_GRAVS];

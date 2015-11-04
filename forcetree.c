@@ -27,14 +27,6 @@ static int last;
 
 
 
-/*! length of lock-up table for short-range force kernel in TreePM algorithm */
-//#define NTAB 1000
-/*! variables for short-range lookup table */
-// KC 29.9.15 (European style)
-// Extended to accommodate all the possible smoothings
-
-static double shortrange_fourier_pot[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_force[N_GRAVS][N_GRAVS][NTAB];
-
 /*! toggles after first tree-memory allocation, has only influence on log-files */
 static int first_flag = 0;
 
@@ -1541,10 +1533,8 @@ int force_treeevaluate(int target, int mode, double *latticecountsum)
 	// A single particle contributes
 	r = sqrt(r2[sG]);
 	  
-	// KC 1/31/15
-	// AccelFxns now return the normalized value in one step...
 	if(r >= h)
-	  fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
+	  fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1) / r;
 	else
 	  fac = (*AccelSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
 	
@@ -1566,9 +1556,9 @@ int force_treeevaluate(int target, int mode, double *latticecountsum)
 	  // KC 10/18/14
 	  if(r >= h) {
 #ifdef NGRAVS_ACCUMULATOR
-	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], r2[i], r, Nparticles[i]);
+	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], r2[i], r, Nparticles[i]) / r;
 #else
-	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], r2[i], r, 1);
+	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], r2[i], r, 1) / r;
 #endif
 	  }
 	  else
@@ -2861,7 +2851,7 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
   asmthfac = 0.5 / asmth * (NTAB / 3.0);
 
   // KC 11/3/15
-  utorwpi = 2*M_PI*asmth;
+  utorwpi = 1.0/(2*M_PI*asmth);
 
 #ifndef UNEQUALSOFTENINGS
   h = All.ForceSoftening[ptype];
@@ -3179,12 +3169,14 @@ void force_treeallocate(int maxnodes, int maxpart)
   int i;
   size_t bytes;
   double allbytes = 0;
-  double u;
 
+#ifdef PMGRID
   // KC 27.9.15
+  double u;
   fftw_plan plan;
   int nA, nB;
   double r, Z;
+#endif
 
   MaxNodes = maxnodes;
 

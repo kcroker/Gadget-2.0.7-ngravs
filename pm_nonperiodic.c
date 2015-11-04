@@ -345,7 +345,9 @@ void pm_setup_nonperiodic_kernel(void)
   double kx, ky, kz, k2, fx, fy, fz, ff;
   int ip;
 
-  int n, m;
+  // ngravs
+  int n, m, tabindex;
+  double utorpi;
 
   /* now set up kernel and its Fourier transform */
 
@@ -356,6 +358,10 @@ void pm_setup_nonperiodic_kernel(void)
     for(m = 0; m < N_GRAVS; ++m)
       for(i = 0; i < fftsize; i++)	/* clear local density field */
    	kernel[0][n][m][i] = 0;
+
+  // KC 11/4/15
+  // Note that we gotta use this
+  utorwpi = 1.0/(2*M_PI*All.Asmth[0]);
 
   for(n = 0; n < N_GRAVS; ++n)
     for(m = 0; m < N_GRAVS; ++m) {
@@ -375,37 +381,28 @@ void pm_setup_nonperiodic_kernel(void)
 		z -= 1.0;
 	    
 	      r = sqrt(x * x + y * y + z * z);
-	      
-	      u = 0.5 * r / (((double) ASMTH) / GRID);
+	      //u = 0.5 * r / (((double) ASMTH) / GRID);
 	    
 	      // KC 11/1/15
-	      // XXX
-	      // This again assumes Newton.  fml
-	      // This can be replaced with the actual values of the shortrange force. 
-	      // So we can keep non-periodic investigations.  Thank god.
-	      // However, the Fourier Kernel itself is going to suffer (badly) from stepping.
-	      //
-	      // What really should be done is to just construct the non-periodic k-space kernel
-	      // as Hockney does by piecing together 8 shifted copies so that k-space potential
-	      // at the edges of the active octant are vacuum boundaries.
-	      //
-	      // This way, we avoid the need to work backward from the now very difficult to compute
-	      // shortrange force.
-	 
-	      fac = 1 - erfc(u);
-
-	      if(r > 0) {
-	   
-	    	// Notice that this potential is that due to a point source at the origin.  
-		// Thus, it becomes clear that SEP violations become unworkable, and
-		// that if the mass parameter sets the scale of the interaction, then this
-		// scale must be fixed throughout the entire simulation.
-	
-		// KC 11/23/14
-		// This is the free-space position space Green's Function for a source at the origin:
-		// the solution of Poisson's equation for a single source
-		kernel[0][n][m][GRID * GRID2 * (i -slabstart_x) + GRID2 * j + k] = -fac * 
-		  (*PotentialFxns[n][m])(MassTable[nA], MassTable[nB], 0.0, r, 1);
+	      // We have to go to the table here... it remains
+	      // to be seen how this performs accuracy wise.  I suspect it won't be
+	      // that great :/
+	      asmthfac = 0.5 / All.Asmth[0] * (NTAB / 3.0);
+	      tabindex = (int)(asmthfac * r);
+		      
+	      if(r > 0 && tabindex < NTAB) {
+		
+		// XXX
+		// Note also that the PotentialFxns had better be hardcoding the masses
+		// as parameters, or else shortrange_fourier_pot will be mistabulated.
+		kernel[0][n][m][GRID * GRID2 * (i -slabstart_x) + GRID2 * j + k] =
+		  -(*PotentialFxns[n][m])(MassTable[nA], MassTable[nB], 0.0, r, 1) 
+		  + utorwpi * shortrange_fourier_pot[nA][nB][tabindex];
+	      }
+	      else if(r > 0) {
+		// XXX
+		// It won't quite be dead yet, so this will ring loud and bad
+		kernel[0][n][m][GRID * GRID2 * (i -slabstart_x) + GRID2 * j + k] = 0.0;	
 	      }
 	      else {
 		// KC 1/25/15
@@ -447,6 +444,8 @@ void pm_setup_nonperiodic_kernel(void)
 	      // KC 11/1/15
 	      // XXX!!
 	      // See above comments.  
+	      // This one is really bad though as the smoothing scales, which change,
+	      // would need to enter the tabulation.  No dice.
 	      fac = erfc(u * All.Asmth[1] / All.Asmth[0]) - erfc(u);
 
 	      if(r > 0) {
