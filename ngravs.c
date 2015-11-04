@@ -8,8 +8,7 @@
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_math.h>
 
-#include <fftw.h>
-
+#include "ngravs.h"
 #include "allvars.h"
 #include "proto.h"
 
@@ -201,12 +200,12 @@ void wire_grav_maps(void) {
 
 // Note: the product of mTox * jTok = 2\pi mj/N_G
 //       which is what FFTW expects
-double jTok(int m, double Z) {
+FLOAT jTok(int m, double Z) {
 
   return 2.0*M_PI*m*NTAB*6.0*OL/(3.0*(12*NTAB*OL*LEN-6*OL*LEN+2));
 }
 
-double mTox(int j) {
+FLOAT mTox(int j) {
   
   return 3.0*j/(6.0*NTAB*OL);
 }
@@ -221,20 +220,14 @@ int fourierToGadget(int i) {
   return (i - 3*OL)/(6*OL);
 }
 
-double fourierIntegrand(double k, gravity normKGreen, double Z) {
+FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z) {
   
-  double k2 = k*k;
+  FLOAT k2 = k*k;
   
   return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
 }
 
-double newtonKGreen(double target, double source, double k2, double k, long N) {
-  
-  return 1.0; // Normalized Yukawa -> 
-  //return k2 / (k2 + 0.5);
-}
-
-int performConvolution(fftw_plan plan, gravity normKGreen, double Z, double *oRes, double *oResI) {
+int performConvolution(fftw_plan plan, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI) {
   
   fftw_complex *in, *out;
   int m,j;
@@ -288,6 +281,7 @@ int performConvolution(fftw_plan plan, gravity normKGreen, double Z, double *oRe
  
   // 3) Integrate so as to constrain the error correctly:
   // Newton-Cotes 4-point rule
+  // Run the sum at double precision, though we may assign to lower precision
   sum = 0.0;
   in[0].re = 0.0;
   for(m = 0; m < NGRAVS_TPM_N-3; m += 3) {

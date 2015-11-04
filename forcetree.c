@@ -26,11 +26,15 @@
 static int last;
 
 
+#ifdef PMGRID
+// KC 11/4/15
+// Note that we use FLOAT here because if the FFTW routines expect the wrong width, 
+// you're going to have a bad time
+static FLOAT shortrange_fourier_pot[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_force[N_GRAVS][N_GRAVS][NTAB];
+#endif
 
 /*! toggles after first tree-memory allocation, has only influence on log-files */
 static int first_flag = 0;
-
-
 
 
 #ifdef PERIODIC
@@ -3172,10 +3176,11 @@ void force_treeallocate(int maxnodes, int maxpart)
 
 #ifdef PMGRID
   // KC 27.9.15
-  double u;
+  FLOAT u;
   fftw_plan plan;
   int nA, nB;
-  double r, Z;
+  double r;
+  FLOAT Z;
 #endif
 
   MaxNodes = maxnodes;
@@ -3230,7 +3235,8 @@ void force_treeallocate(int maxnodes, int maxpart)
       plan = ngravsConvolutionInit();
       Z = 0.5; 
       
-      printf("ngravs: tabulating shortrange correction factors for dimensionless transition scale %f...\n", Z);
+      printf("ngravs: (Task %d) tabulating shortrange correction factors for dimensionless transition scale %f...\n", 
+	     ThisTask, Z);
 
       // Sources
       for(nA = 0; nA < N_GRAVS; ++nA) {
@@ -3245,7 +3251,7 @@ void force_treeallocate(int maxnodes, int maxpart)
 				 shortrange_fourier_force[nB][nA]);
 	  if(i) {
 
-	    printf("ngravs: could not allocate memory for FFT.  Reduce OL and/or LEN and recompile.");
+	    printf("ngravs: could not allocate memory for FFT on task %d.  Reduce OL and/or LEN and recompile.", ThisTask);
 	    endrun(1047);
 	  }
 	  
@@ -3268,8 +3274,8 @@ void force_treeallocate(int maxnodes, int maxpart)
 
       // Cleanup
       fftw_destroy_plan(plan);
-
-      printf("ngravs: Finished short-range correction tabulation with FFT\n");
+      
+      printf("ngravs: (Task %d) Finished short-range correction tabulation with FFT\n", ThisTask);
 #endif
     }
 }

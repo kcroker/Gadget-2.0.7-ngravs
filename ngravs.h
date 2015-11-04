@@ -1,4 +1,14 @@
-#include <fftw.h>
+#include "allvars.h"
+
+#ifdef NOTYPEPREFIX_FFTW
+#include        <fftw.h>
+#else
+#ifdef DOUBLEPRECISION_FFTW
+#include     <dfftw.h>	/* double precision FFTW */
+#else
+#include     <sfftw.h>
+#endif
+#endif
 
 // Gravitational interactions (accelerations)
 double none(double target, double source, double h, double r, long N);
@@ -32,9 +42,9 @@ double neg_plummer_pot(double target, double source, double h, double r, long N)
 
 // Functions required for convolution
 int gadgetToFourier(int i);
-int performConvolution(fftw_plan plan, gravity normKGreen, double Z, double *oRes, double *oResI);
+int performConvolution(fftw_plan plan, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI);
 fftw_plan ngravsConvolutionInit(void);
-double mTox(int m);
+FLOAT mTox(int m);
 
 // Initialization functions for ngravs extension
 void wire_grav_maps(void);
