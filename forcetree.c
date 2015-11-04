@@ -2784,7 +2784,7 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
   int no, ptype, tabindex;
   double r2[N_GRAVS], dx[N_GRAVS], dy[N_GRAVS], dz[N_GRAVS], mass[N_GRAVS], r, h;
   double pot, pos_x, pos_y, pos_z, aold;
-  double eff_dist, fac, rcut, asmth, asmthfac;
+  double eff_dist, rcut, asmth, asmthfac;
   double dxx, dyy, dzz;
 #if defined(UNEQUALSOFTENINGS) && !defined(ADAPTIVE_GRAVSOFT_FORGAS)
   int maxsofttype;
@@ -3106,7 +3106,7 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
 	      pot -= (*PotentialFxns[pgravtype][sG])(pmass, mass[sG], h, r, 1) - 
 		utorwpi * shortrange_fourier_pot[pgravtype][sG][tabindex];
 	    else
-	      pot += fac * (*PotentialSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
+	      pot += (*PotentialSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
 	  }
       }
       else {
