@@ -35,13 +35,13 @@
 //
 #define KGRID (2*GRID)
 #define KGRID2 (2*(KGRID/2 + 1))
-static int kern_slab_to_task[KGRID];
+//static int kern_slab_to_task[KGRID];
 static rfftwnd_mpi_plan kern_ifft_inverse_plan;
 static int *kern_slabs_per_task;
 static int *kern_first_slab_of_task;
 static int kern_slabstart_x, kern_nslab_x, kern_slabstart_y, kern_nslab_y;
 static int kern_fftsize, kern_maxfftsize;
-static fftw_complex *prekernel, *kern_workspace;
+static fftw_real *prekernel, *kern_workspace;
 static fftw_real *ifft_of_prekernel;
 
 // Original stuff
@@ -209,55 +209,34 @@ void pm_init_nonperiodic(void)
   fft_inverse_plan = rfftw3d_mpi_create_plan(MPI_COMM_WORLD, GRID, GRID, GRID,
 					     FFTW_COMPLEX_TO_REAL, FFTW_ESTIMATE | FFTW_IN_PLACE);
 
-  // KC 11/6/15
-  kern_ifft_inverse_plan = rfftw3d_mpi_create_plan(MPI_COMM_WORLD, KGRID, KGRID, KGRID, 
-						  FFTW_COMPLEX_TO_REAL, FFTW_ESTIMATE | FFTW_IN_PLACE);
-
-  
   /* Workspace out the ranges on each processor. */
   rfftwnd_mpi_local_sizes(fft_forward_plan, &nslab_x, &slabstart_x, &nslab_y, &slabstart_y, &fftsize);
 
-  // KC 11/6/15
-  rfftwnd_mpi_local_sizes(kern_ifft_inverse_plan, 
+  for(i = 0; i < GRID; i++)
+    slab_to_task_local[i] = 0;
+
+  for(i = 0; i < nslab_x; i++)
+    slab_to_task_local[slabstart_x + i] = ThisTask;
+
+  MPI_Allreduce(slab_to_task_local, slab_to_task, GRID, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+  slabs_per_task = malloc(NTask * sizeof(int));
+
+  MPI_Allgather(&nslab_x, 1, MPI_INT, slabs_per_task, 1, MPI_INT, MPI_COMM_WORLD);
+
+  // KC 11/8/15
+  // Use full complex arrays because we need it to work now
+  kern_ifft_inverse_plan = fftw3d_mpi_create_plan(MPI_COMM_WORLD, KGRID, KGRID, KGRID, 
+						  FFTW_COMPLEX_TO_REAL, FFTW_ESTIMATE | FFTW_IN_PLACE);
+
+  fftwnd_mpi_local_sizes(kern_ifft_inverse_plan, 
 			  &kern_nslab_x, 
 			  &kern_slabstart_x, 
 			  &kern_nslab_y, 
 			  &kern_slabstart_y, 
 			  &kern_fftsize);
-
-
-  for(i = 0; i < GRID; i++)
-    slab_to_task_local[i] = 0;
-
-  // KC 11/6/15
-  //for(i = 0; i < KGRID; ++i)
-  //  kern_slab_to_task_local[i] = 0;
-
-  for(i = 0; i < nslab_x; i++)
-    slab_to_task_local[slabstart_x + i] = ThisTask;
-
-  // KC 11/6/15
-  //for(i = 0; i < kern_nslab_x; i++)
-  //  kern_slab_to_task_local[kern_slabstart_x + i] = ThisTask;
-
-  MPI_Allreduce(slab_to_task_local, slab_to_task, GRID, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-
-  // KC 11/6/15
-  /* MPI_Allreduce(kern_slab_to_task_local,  */
-  /* 		kern_slab_to_task,  */
-  /* 		KGRID,  */
-  /* 		MPI_INT,  */
-  /* 		MPI_SUM,  */
-  /* 		MPI_COMM_WORLD); */
-
-  slabs_per_task = malloc(NTask * sizeof(int));
-
-  // KC 11/6/15
+  
   kern_slabs_per_task = malloc(NTask * sizeof(int));
-
-  MPI_Allgather(&nslab_x, 1, MPI_INT, slabs_per_task, 1, MPI_INT, MPI_COMM_WORLD);
-
-  // KC 11/6/15
   MPI_Allgather(&kern_nslab_x, 
 		1, 
 		MPI_INT, 
@@ -305,17 +284,12 @@ void pm_init_nonperiodic(void)
 #if !defined(PERIODIC)
   // KC 11/6/15
   // Finally, allocate the memory for my slice of the prekernel enormous transform
-  // Note we only allocate size for the reals, but we cast it as a complex!!
-  // This is intentional!
-  if(!(prekernel = (fftw_complex *) malloc(bytes = kern_fftsize * sizeof(fftw_real))))
+  if(!(prekernel = (fftw_real *) malloc(bytes = kern_fftsize * sizeof(fftw_real))))
     {
       printf("ngravs: failed to allocate memory for the non-periodic prekernel (%g MB).\n", bytes / (1024.0 * 1024.0));
       endrun(1);
     }
   bytes_tot += bytes;
-
-  // This gets the pointer types correct
-  ifft_of_prekernel = (fftw_real *) prekernel;
 
   for(n = 0; n < N_GRAVS; ++n) {
     for(m = 0; m < N_GRAVS; ++m) {
@@ -332,19 +306,6 @@ void pm_init_nonperiodic(void)
 #endif
 
 #if defined(PLACEHIGHRESREGION)
-  // KC 11/6/15
-  // Finally, allocate the memory for my slice of the prekernel enormous transform
-  // Same strategy: allocate size for reals, but cast to complex
-  if(!(prekernel[1] = (fftw_complex *) malloc(bytes = kern_fftsize * sizeof(fftw_real))))
-    {
-      printf("ngravs: failed to allocate memory for the non-periodic prekernel (%g MB).\n", bytes / (1024.0 * 1024.0));
-      endrun(1);
-    }
-  bytes_tot += bytes;
-
-  // This gets the pointer types correct
-  ifft_of_prekernel[1] = (fftw_real *) prekernel[1];
-
   for(n = 0; n < N_GRAVS; ++n) {
     for(m = 0; m < N_GRAVS; ++m) {
       
@@ -380,14 +341,14 @@ void pm_init_nonperiodic_allocate(int dimprod)
 
   // KC 11/6/15
   // Note the strange casts are intentional.
-  if(!(prekernel = (fftw_complex *) malloc(bytes = kern_fftsize * sizeof(fftw_real)))) {
+  if(!(prekernel = (fftw_real *) malloc(bytes = kern_fftsize * sizeof(fftw_real)))) {
     
     printf("ngravs: failed to allocate memory for the non-periodic prekernel (%g MB).\n", bytes / (1024.0 * 1024.0));
     endrun(1);
   }
   bytes_tot += bytes;
   
-  if(!(kern_workspace = (fftw_complex *) malloc(bytes = kern_maxfftsize * sizeof(fftw_real))))
+  if(!(kern_workspace = (fftw_real *) malloc(bytes = kern_maxfftsize * sizeof(fftw_real))))
     {
       printf("ngravs: failed to allocate memory for the non-periodic prekernel workspace (%g MB).\n", bytes / (1024.0 * 1024.0));
       endrun(1);
@@ -478,10 +439,10 @@ void pm_setup_nonperiodic_kernel(void)
   int ip;
 
   // ngravs
-  int n, m, tabindex, d;
-  double utorpi;
+  int n, m, d;
   double asmth2[2];
   double fac[2];
+  double e[2];
 
   /* now set up kernel and its Fourier transform */
 
@@ -496,40 +457,42 @@ void pm_setup_nonperiodic_kernel(void)
   // CONTINUE AS DONE BEFORE, BUT SAMPLE THE PREKERNEL
 
   // KC 11/4/15
-  // Note the additional factor of 2*M_PI compared to the forcetree.c
-  // code because this FFT now does the 3D transform, so there is no 2*M_PI
-  // on top from us performing angular integrations in advance
-  // I do not believe this factor is required
-  //   utorwpi = 1.0/(4*M_PI*M_PI*All.Asmth[0]);
-  
   // Note that we must carefully use the non-periodically determined mesh sizes
+  // XXX
+  // These are probably wrong
   asmth2[0] = (2 * M_PI) * All.Asmth[0] / All.TotalMeshSize[0];
   asmth2[0] *= asmth2[0];
   fac[0] = All.G / pow(All.TotalMeshSize[0], 4) * pow(All.TotalMeshSize[0] / GRID, 3);	/* to get potential */
 
-#if defined PLACEHIRESREGION
+  printf("ngravs: fac[0] = %f\n", fac[0]);
+
+#if defined PLACEHIGHRESREGION
   asmth2[1] = (2 * M_PI) * All.Asmth[1] / All.TotalMeshSize[1];
   asmth2[1] *= asmth2[1];
   fac[1] = All.G / pow(All.TotalMeshSize[1], 4) * pow(All.TotalMeshSize[1] / GRID, 3);	/* to get potential */
 #endif
+  
+  // UH oh.  What is asmth2[0] and [1]?  Have they been set yet??
   
   for(n = 0; n < N_GRAVS; ++n) {
     for(m = 0; m < N_GRAVS; ++m) {
       
       // KC 11/6/15
       // Do the very large kernels from the periodic k-space functions
-      for(d = 0; d < 2; ++d) {
-	
-#if !defined PLACEHIRESREGION
-	// KC 11/6/15
-	// Don't try to process a second kernel if we are not playing 
-	// zoom games
+      for(d = 0; d < 2; ++d) {	
+#if !defined PLACEHIGHRESREGION
 	if(d == 1)
 	  break;
 #endif
 
 	//////////////////////// BEGIN PREKERNEL CREATION
 	//
+	for(i = 0; i < kern_fftsize; ++i)
+	  prekernel[i] = 0.0;
+	
+	// KC 11/8/15
+	// Note z only goes to half-size.  The rest of the array gets wonk
+	// ordered.
 	// Note that we are transposed in x and y because TRANSPOSED_ORDER
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++) {
 	  for(x = 0; x < KGRID; x++) {
@@ -576,28 +539,38 @@ void pm_setup_nonperiodic_kernel(void)
 		  // Now we first put the antialiasing in place
 		  // And then multiply by the appropriately truncated periodic k-space greens function
 #if !defined(PERIODIC)
-		  if(!d) {
-		    prekernel[ip].re = ff * 
-		      -exp(-k2 * asmth2[0]) * 
-		      (*GreensFxns[n][m])(All.MassTable[n], All.MassTable[m], k2, 0.0, 1) * fac[0] / k2;
-		  
-		    prekernel[ip].im = 0.0; 
+		  if(d == 0) {
+		    prekernel[ip] = ff * (-exp(-k2 * ((double) ASMTH/GRID) * ((double)ASMTH/GRID))) *
+  		      (*GreensFxns[n][m])(All.MassTable[n], All.MassTable[m], k2, 0.0, 1) * fac[0] / k2;
+
+		    // KC 11/8/15
+		    // And we have to get the upper set properly too...
+		    if(ip > 0 && ip < kern_fftsize / 2)
+		      prekernel[kern_fftsize - ip] = ff * (-exp(-k2 * ((double) ASMTH/GRID) * ((double)ASMTH/GRID))) *
+			(*GreensFxns[n][m])(All.MassTable[n], All.MassTable[m], k2, 0.0, 1) * fac[0] / k2;
+
+		    fprintf("%d %d %d  
 		  }
-		  /* ff *  */
-		  /*   -exp(-k2 * asmth2[0]) *  */
-		  /*   (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1) * fac[0] / k2; */
 #endif
 #if defined(PLACEHIGHRESREGION)
-		  if(d) {
-		    prekernel[ip].re = ff * 
-		      -exp(-k2 * asmth2[0]) * exp(-k2 * asmth2[1]) * 
-		      (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1) * fac[1] / k2;
-		  
-		    prekernel[ip].im = 0.0; 
+		  //    -(/*exp(-k2 * asmth2[0]) - */ exp(-k2 * pow(All.Asmth[0]/All.Asmth[1], 2))/(All.Asmth[0]/All.Asmth[1]))
+		  if(d == 1) {
+		    prekernel[ip] = ff;
+ /* *  */
+ /* 		      (exp(-k2 * pow(All.Asmth[0]/All.Asmth[1],2))*(All.Asmth[0]/All.Asmth[1]) - exp(-k2 * asmth2[0])) *  */
+ /* 		      (*GreensFxns[n][m])(All.MassTable[n], All.MassTable[m], k2, 0.0, 1) * fac[d] / k2; */
+
+		    prekernel[ip] = 0.0; 
+
+		    /* // Output difference */
+		    /* fprintf(stderr, "%.15e %.15e %.15e\n",  */
+		    /* 	    sqrt(k2),  */
+		    /* 	    ff * (-exp(-k2*asmth2[0])) * */
+		    /* 	    (*GreensFxns[n][m])(All.MassTable[n], All.MassTable[m], k2, 0.0, 1) * fac[0] / k2, */
+		    /* 	    (exp(-k2 * pow(All.Asmth[0]/All.Asmth[1], 2))*(All.Asmth[0]/All.Asmth[1]) - exp(-k2 * asmth2[0])) *  */
+		    /* 	    (*GreensFxns[n][m])(All.MassTable[n], All.MassTable[m], k2, 0.0, 1) * fac[d] / k2); */
+
 		  }
-		  /* ff * */
-		  /* 		  -exp(-k2 * asmth2[0]) * exp(-k2 * asmth2[1]) * */
-		  /* 		  (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1) * fac[1] / k2; */
 #endif
 		}
 	    }
@@ -609,13 +582,13 @@ void pm_setup_nonperiodic_kernel(void)
 
 	// KC 11/6/15
 	// This code may be wrong, I got it from pm_periodic.c...
-	// XXX?
+	// Seems legit ;)
 	if(slabstart_y == 0)
-	  prekernel[0].re = prekernel[0].im = 0.0;
+	  prekernel[0] = 0.0;
 
 	// KC 11/6/15
 	// Perform the inverse transform!
-	rfftwnd_mpi(kern_ifft_inverse_plan, 1, (fftw_real *)prekernel, ifft_of_prekernel, FFTW_TRANSPOSED_ORDER);
+	rfftwnd_mpi(kern_ifft_inverse_plan, 1, prekernel, kern_workspace, FFTW_TRANSPOSED_ORDER);
 	
 	// SANITY CHECK.  Output the prekernel, where OUR SLAB overlaps in the lower octant
 	// it should look like erf(u) in *all directions.*
@@ -637,18 +610,22 @@ void pm_setup_nonperiodic_kernel(void)
 	      r = sqrt(x * x + y * y + z * z);
 
 	      u = 0.5 * r / (((double) ASMTH) / GRID);
-
+	      e[0] = 1-erfc(u);
+	      e[1] = erfc(u * All.Asmth[1] / All.Asmth[0]) - erfc(u); 
+	      // Alternatively: -erf(u * All.Asmth[1] / All.Asmth[0]) + 1 - erfc(u)
+	      
 	      if(r > 0) {
 		fprintf(stderr, "%.15e %.15e %.15e\n",
 			r,
-			-1/r + fac[d] * ifft_of_prekernel[GRID * GRID2 * (i - kern_slabstart_x) + GRID2 * j + k],
-			-(1-erfc(u)) / r);
+			fac[d] * prekernel[GRID * GRID2 * (i - kern_slabstart_x) + GRID2 * j + k],
+			- e[d] / r);
 	      }
 	    }
 	  }
 	}
-	endrun(5656);
+	fprintf(stderr, "\n# Second prekernel begins\n");
       }
+      endrun(5656);
     }
   }
 #endif
