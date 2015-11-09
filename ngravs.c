@@ -186,6 +186,7 @@ void wire_grav_maps(void) {
 // Please see the ngravs paper for very detailed discussion of the behaviour here
 //
 
+// Some default values here
 // How much to oversample by
 // WHY: This determines the magnitude of the error term: 
 #define OL 5
@@ -196,28 +197,28 @@ void wire_grav_maps(void) {
 #define LEN 4
 
 // This is then the required number of samples.
-#define NGRAVS_TPM_N (12*NTAB*OL*LEN-6*OL*LEN+2)
+// #define NGRAVS_TPM_N (12*NTAB*OL*LEN-6*OL*LEN+2)
 
 // Note: the product of mTox * jTok = 2\pi mj/N_G
 //       which is what FFTW expects
-FLOAT jTok(int m, double Z) {
+FLOAT jTok(int m, double Z, struct ngravsInterpolant *s) {
 
-  return 2.0*M_PI*m*NTAB*6.0*OL/(3.0*(12*NTAB*OL*LEN-6*OL*LEN+2));
+  return 2.0 * M_PI * m * s->ntab * 6.0 * s->ol/(3.0 * s->ngravs_tpm_n);
 }
 
-FLOAT mTox(int j) {
+FLOAT mTox(int j, struct ngravsInterpolant *s) {
   
-  return 3.0*j/(6.0*NTAB*OL);
+  return 3.0*j/(6.0 * s->ntab * s->ol);
 }
 
-int gadgetToFourier(int j) {
+int gadgetToFourier(int j, struct ngravsInterpolant *s) {
 
-  return OL*(6*j + 3);
+  return s->ol * (6*j + 3);
 }
 
-int fourierToGadget(int i) {
+int fourierToGadget(int i, struct ngravsInterpolant *s) {
 
-  return (i - 3*OL)/(6*OL);
+  return (i - 3 * s->ol)/(6 * s->ol);
 }
 
 FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z) {
@@ -227,78 +228,78 @@ FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z) {
   return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
 }
 
-int performConvolution(fftw_plan plan, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI) {
+int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI) {
   
   fftw_complex *in, *out;
   int m,j;
   double sum, norm;
  
-  in = (fftw_complex *)malloc(sizeof(fftw_complex) * NGRAVS_TPM_N);
-  out = (fftw_complex *)malloc(sizeof(fftw_complex) * NGRAVS_TPM_N);
+  in = (fftw_complex *)malloc(sizeof(fftw_complex) * s->ngravs_tpm_n);
+  out = (fftw_complex *)malloc(sizeof(fftw_complex) * s->ngravs_tpm_n);
   if(!in || !out)
     return 1;
   
   /* // Debug your mappings?! */
-  /* printf("NTAB: %d\nNGRAVS_TPM_N: %d\nNGRAVS_TPM_N/2: %d\n3/(2NTAB): %f\n", NTAB, NGRAVS_TPM_N, NGRAVS_TPM_N/2, 3.0/(2*NTAB)); */
-  /* for(m = 0; m < NTAB; ++m) { */
-  /*   printf("%d %d %d %f\n", m, gadgetToFourier(m), fourierToGadget(gadgetToFourier(m)), mTox(gadgetToFourier(m))); */
+  /* printf("s->ntab: %d\nNGRAVS_TPM_N: %d\nNGRAVS_TPM_N/2: %d\n3/(2s->ntab): %f\n", s->ntab, s->ngravs_tpm_n, s->ngravs_tpm_n/2, 3.0/(2*s->ntab)); */
+  /* for(m = 0; m < s->ntab; ++m) { */
+  /*   printf("%d %d %d %f\n", m, gadgetToFourier(m, s), fourierToGadget(gadgetToFourier(m, s), s), mTox(gadgetToFourier(m, s), s)); */
   /* } */
   
   /* printf("\n"); */
   /* for(j = 0; j < NGRAVS_TPM_N/2; ++j) { */
-  /*   printf("%d %d %d %f %d\n", j, fourierToGadget(j), gadgetToFourier(fourierToGadget(j)), mTox(j), gadgetToFourier(fourierToGadget(j)) - j); */
+  /*   printf("%d %d %d %f %d\n", j, fourierToGadget(j, s), gadgetToFourier(fourierToGadget(j, s)), mTox(j, s), gadgetToFourier(fourierToGadget(j, s), s) - j); */
   /* } */
   /* exit(0); */
 
   // Zero out all arrays first
-  for(j = 0; j < NGRAVS_TPM_N; ++j) {
+  for(j = 0; j < s->ngravs_tpm_n; ++j) {
     in[j].re = 0;
     in[j].im = 0;
   }
 
   // 1) FFTW needs this loaded in wonk order
-  in[0].re = fourierIntegrand(jTok(0, Z), normKGreen, Z);
-  for(j = 1; j < NGRAVS_TPM_N/2; ++j) {
+  in[0].re = fourierIntegrand(jTok(0, Z, s), normKGreen, Z);
+  for(j = 1; j < s->ngravs_tpm_n/2; ++j) {
 
-    in[j].re = fourierIntegrand(jTok(j, Z), normKGreen, Z);
-    in[NGRAVS_TPM_N - j].re = fourierIntegrand(jTok(j, Z), normKGreen, Z);
+    in[j].re = fourierIntegrand(jTok(j, Z, s), normKGreen, Z);
+    in[s->ngravs_tpm_n - j].re = fourierIntegrand(jTok(j, Z, s), normKGreen, Z);
   }
 
   // 2) Xform
-  fftw_one(plan, in, out);
-  norm = 2.0*M_PI*NTAB*6.0*OL/(3.0*(12*NTAB*OL*LEN-6*OL*LEN+2));
+  fftw_one(s->plan, in, out);
+  norm = 2.0*M_PI * s->ntab * 6.0 * OL/(3.0 * s->ngravs_tpm_n);
 
   /* // Debug */
   /* // Make sure the transform is behaving reasonably */
-  /* for(m = 0; m < NGRAVS_TPM_N; ++m) */
-  /*   printf("%.15f %.15f\n", mTox(m), out[m].re*norm); */
+  /* for(m = 0; m < s->ngravs_tpm_n; ++m) */
+  /*   printf("%.15f %.15f\n", mTox(m, s), out[m].re*norm); */
   /* exit(0); */
 
-  sum = NGRAVS_TPM_N;
+  sum = s->ngravs_tpm_n;
 
-  for(m = 0; m < NTAB; ++m)
-    oRes[m] = out[gadgetToFourier(m)].re * norm;
+  for(m = 0; m < s->ntab; ++m)
+    oRes[m] = out[gadgetToFourier(m, s)].re * norm;
  
   // 3) Integrate so as to constrain the error correctly:
   // Newton-Cotes 4-point rule
   // Run the sum at double precision, though we may assign to lower precision
   sum = 0.0;
   in[0].re = 0.0;
-  for(m = 0; m < NGRAVS_TPM_N-3; m += 3) {
-    sum += (mTox(m+3) - mTox(m)) * 0.125 * norm * (out[m].re + 3.0*out[m+1].re + 3.0*out[m+2].re + out[m+3].re);
+  for(m = 0; m < s->ngravs_tpm_n-3; m += 3) {
+    sum += (mTox(m+3, s) - mTox(m, s)) * 0.125 * norm * (out[m].re + 3.0*out[m+1].re + 3.0*out[m+2].re + out[m+3].re);
     
     // Put it where you'd expect to find it
     in[m/3+1].re = sum;
   }
 
   // 3.5) Downsample
-  for(m = 0; m < NTAB; ++m)
-    oResI[m] = in[gadgetToFourier(m)/3].re;
+  for(m = 0; m < s->ntab; ++m)
+    oResI[m] = in[gadgetToFourier(m, s)/3].re;
 
   /* // Debug */
   /* // Make sure the transform is behaving reasonably */
-  /* for(m = 0; m < NTAB; ++m) */
-  /*   printf("%.15f %.15f\n", mTox(gadgetToFourier(m)), oResI[m]); */
+  /* for(m = 0; m < s->ntab; ++m) */
+  /*   printf("%.15f %.15f\n", mTox(gadgetToFourier(m, s)), oResI[m]); */
   /* exit(0); */
 
   free(in);
@@ -306,9 +307,32 @@ int performConvolution(fftw_plan plan, gravity normKGreen, FLOAT Z, FLOAT *oRes,
   return 0;
 }
 
-fftw_plan ngravsConvolutionInit(void) {
+/*! Create a workspace for a table with ntab entries, which goes len deep
+ *  into x-space, and oversamples at a frequency of ol (so ol 2 is 2x as many 
+ *  samples as would be needed to critically sample */
+struct ngravsInterpolant *ngravsConvolutionInit(int ntab, int len, int ol) {
 
-  return fftw_create_plan(NGRAVS_TPM_N, FFTW_BACKWARD, FFTW_ESTIMATE);
+  struct ngravsInterpolant *s;
+
+  if(! (s = (struct ngravsInterpolant *) malloc(sizeof(struct ngravsInterpolant)))) {
+
+    printf("ngravs: could not allocate table structure... something really bad is happening because I'm tiny!");
+    endrun(1045);
+  }
+  
+  s->ntab = ntab;
+  s->len = len;
+  s->ol = ol;
+  s->ngravs_tpm_n = 12*ntab*ol*len-6*ol*len+2;
+  s->plan = fftw_create_plan(s->ngravs_tpm_n, FFTW_BACKWARD, FFTW_ESTIMATE);
+
+  return s;
+}
+
+void ngravsConvolutionFree(struct ngravsInterpolant *s) {
+
+  fftw_destroy_plan(s->plan);
+  free(s);
 }
 
 //////////////////////// END FOURIER INTEGRATION ROUTINES //////////

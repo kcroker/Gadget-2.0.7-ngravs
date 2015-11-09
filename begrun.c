@@ -9,7 +9,7 @@
 
 #include "allvars.h"
 #include "proto.h"
-
+#include "ngravs.h"
 
 /*! \file begrun.c
  *  \brief initial set-up of a simulation run

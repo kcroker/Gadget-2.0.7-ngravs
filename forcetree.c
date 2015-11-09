@@ -7,7 +7,7 @@
 
 #include "allvars.h"
 #include "proto.h"
-
+#include "ngravs.h"
 
 /*! \file forcetree.c
  *  \brief gravitational tree and code for Ewald correction
@@ -3177,7 +3177,7 @@ void force_treeallocate(int maxnodes, int maxpart)
 #ifdef PMGRID
   // KC 27.9.15
   FLOAT u;
-  fftw_plan plan;
+  struct ngravsInterpolant *ngravsPeriodicTable;
   int nA, nB;
   double r;
   FLOAT Z;
@@ -3232,7 +3232,7 @@ void force_treeallocate(int maxnodes, int maxpart)
       // this may take a bit of time (though it only needs to be performed once)
 #ifdef PMGRID
 
-      plan = ngravsConvolutionInit();
+      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 4, 5);
       Z = 0.5; 
       
       printf("ngravs: (Task %d) tabulating shortrange correction factors for dimensionless transition scale %f...\n", 
@@ -3244,7 +3244,7 @@ void force_treeallocate(int maxnodes, int maxpart)
 	// Receivers
 	for(nB = 0; nB < N_GRAVS; ++nB) {
 	  
-	  i = performConvolution(plan, 
+	  i = performConvolution(ngravsPeriodicTable, 
 				 GreensFxns[nB][nA], 
 				 Z,
 				 shortrange_fourier_pot[nB][nA], 
@@ -3273,8 +3273,8 @@ void force_treeallocate(int maxnodes, int maxpart)
       }
 
       // Cleanup
-      fftw_destroy_plan(plan);
-      
+      ngravsConvolutionFree(ngravsPeriodicTable);
+
       printf("ngravs: (Task %d) Finished short-range correction tabulation with FFT\n", ThisTask);
 #endif
     }

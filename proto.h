@@ -10,9 +10,6 @@
 #include <hdf5.h>
 #endif
 
-// KC 8/11/14 Include prototypes for ngrav.c functions
-#include "ngravs.h"
-
 void   advance_and_find_timesteps(void);
 void   allocate_commbuffers(void);
 void   allocate_memory(void);

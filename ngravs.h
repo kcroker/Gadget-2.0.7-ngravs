@@ -10,6 +10,16 @@
 #endif
 #endif
 
+
+struct ngravsInterpolant {
+
+  fftw_plan plan;
+  int ntab;
+  int len;
+  int ngravs_tpm_n;
+  int ol;
+};
+ 
 // Gravitational interactions (accelerations)
 double none(double target, double source, double h, double r, long N);
 double newtonian(double target, double source, double h, double r, long N);
@@ -41,10 +51,11 @@ double plummer_pot(double target, double source, double h, double r, long N);
 double neg_plummer_pot(double target, double source, double h, double r, long N);
 
 // Functions required for convolution
-int gadgetToFourier(int i);
-int performConvolution(fftw_plan plan, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI);
-fftw_plan ngravsConvolutionInit(void);
-FLOAT mTox(int m);
+int gadgetToFourier(int i, struct ngravsInterpolant *s);
+int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI);
+struct ngravsInterpolant *ngravsConvolutionInit(int ntab, int len, int ol);
+void ngravsConvolutionFree(struct ngravsInterpolant *s);
+FLOAT mTox(int m, struct ngravsInterpolant *s);
 
 // Initialization functions for ngravs extension
 void wire_grav_maps(void);
