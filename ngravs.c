@@ -50,7 +50,7 @@ void wire_grav_maps(void) {
   // code, like lattice correction tables.  So please make a unique identifier!
   //
 
-#if !defined NGRAVS_STOCK_TESTING && !defined NGRAVS_ACCUMULATOR_TESTING
+#if !defined NGRAVS_STOCK_TESTING && !defined NGRAVS_ACCUMULATOR_TESTING && !defined NGRAVS_GEN_TESTING
   /////////////////////// WIRING FOR RESEARCH RUNS ///////////////////
   //
   // Here is where you wire for your research runs.  If you wish to verify force accuracy,
@@ -64,7 +64,9 @@ void wire_grav_maps(void) {
 
   ///////////////// END WIRING FOR RESEARCH RUNS ///////////////////////
   
-#elif defined NGRAVS_STOCK_TESTING && !defined NGRAVS_ACCUMULATOR_TESTING
+#elif defined NGRAVS_STOCK_TESTING
+  printf("ngravs: wired in stock comparison test mode\n");
+
   ////////////////////// WIRING FOR NEWTONIAN COMPARISONS //////////////
   //
   // This code automatically populates all gravitational types with
@@ -90,6 +92,10 @@ void wire_grav_maps(void) {
       //    (summed total mass in node) * (*LatticeForce[][])(...) = (best approximation)
       //
       // For Newtonian things, this is always the case.
+      //
+      // WARNING: The distance scale in the LatticeForce computation is dimensionless in terms
+      //          of the a box grid with EN (see forcetree.c) number of points.  The actual force
+      //          is interpolated from this force trilinearly.
       //
       LatticeForce[i][j] = ewald_force;
       LatticePotential[i][j] = ewald_psi;
@@ -121,8 +127,10 @@ void wire_grav_maps(void) {
     }
   }
   ////////////////////// END NEWTONIAN COMPARISONS WIRING ///////////////////
+
+#elif defined NGRAVS_ACCUMULATOR_TESTING
+  printf("ngravs: wired in accumulator test mode\n");
   
-#elif !defined NGRAVS_STOCK_TESTING && defined NGRAVS_ACCUMULATOR_TESTING
   ///////////////// ACCUMULATOR TESTING RUNS ////////////////////////////
   //
   // This code specifically tests the N_\perp addition with a force law
@@ -170,408 +178,146 @@ void wire_grav_maps(void) {
 
   //////////////// END ACCUMULATOR TESTING WIRING ///////////////////////////
 
+#elif defined NGRAVS_GEN_TESTING
+  printf("ngravs: wired in generalized test mode\n");
+  //////////////// BEGIN GENERALIZE FORCE TESTING WIRING ///////////////////////////
+  //
+  // This code is used to examine the force accuracy during the TreePM transition
+  // for a more general force, in this case Yukawa.  Two populations of particles
+  // interact via Newtonian, except the self-interactions of one type are Yukawa.
+  //
+  ///////////////////////////////////////////////////////////////////////
+
+  NgravsNames[0][0] = "Yukawa";
+  NgravsNames[0][1] = "Yukawa";
+  NgravsNames[1][0] = "Yukawa";
+  NgravsNames[1][1] = "Yukawa";
+
+  AccelFxns[0][0] = yukawa;
+  AccelFxns[0][1] = yukawa;
+  AccelFxns[1][0] = yukawa;
+  AccelFxns[1][1] = yukawa;
+
+  // We set the Yukawa spline to plummer since
+  // the force is Newtonian at small r
+  AccelSplines[0][0] = plummer;
+  AccelSplines[0][1] = plummer; 
+  AccelSplines[1][0] = plummer;
+  AccelSplines[1][1] = plummer; 
+
+#if defined PERIODIC
+  LatticeForce[0][0] = lattice_force_none; //ewald_force;
+  LatticePotential[0][0] = lattice_pot_none; // ewald_psi;
+  LatticeZero[0][0] = 0.0; //2.8372975;
+
+  LatticeForce[0][1] = LatticeForce[1][0] = lattice_force_none; //ewald_force;
+  LatticePotential[0][1] = LatticePotential[1][0] = lattice_pot_none; //ewald_psi;
+  LatticeZero[0][1] = LatticeZero[1][0] = 0.0; //2.8372975;
+
+  LatticeForce[1][1] = lattice_force_none;
+  LatticePotential[1][1] = lattice_pot_none;
+  LatticeZero[1][1] = 0.0;
+#endif
+
+#if defined OUTPUTPOTENTIAL || defined PMGRID
+  GreensFxns[0][0] = pgyukawa;
+  GreensFxns[0][1] = pgyukawa;
+  GreensFxns[1][0] = pgyukawa;
+  GreensFxns[1][1] = pgyukawa;
+
+  // We don't care about the potentials because we're
+  // not doing non-periodic or gastrophysics
+  PotentialFxns[0][0] = none;
+  PotentialSplines[0][0] = none;
+
+  PotentialSplines[0][1] = none;
+  PotentialFxns[0][1] = none;
+
+  PotentialSplines[1][0] = none;
+  PotentialFxns[1][0] = none;
+
+  PotentialSplines[1][1] = none;
+  PotentialFxns[1][1] = none;
+  
+  PotentialFxns[0][1] = none;
+  PotentialFxns[1][0] = none;
+  PotentialFxns[1][1] = none;
+  PotentialZero[0][0] = 0.0;
+  PotentialZero[0][1] = 0.0;
+  PotentialZero[1][0] = 0.0;
+  PotentialZero[1][1] = 0.0;
+#endif
+
+/*   NgravsNames[0][0] = "Newton"; */
+/*   NgravsNames[0][1] = "Newton"; */
+/*   NgravsNames[1][0] = "Newton"; */
+/*   NgravsNames[1][1] = "Yukawa"; */
+
+/*   AccelFxns[0][0] = newtonian; */
+/*   AccelFxns[0][1] = newtonian; */
+/*   AccelFxns[1][0] = newtonian; */
+/*   AccelFxns[1][1] = yukawa; */
+
+/*   // We set the Yukawa spline to plummer since */
+/*   // the force is Newtonian at small r */
+/*   AccelSplines[0][0] = plummer; */
+/*   AccelSplines[0][1] = plummer;  */
+/*   AccelSplines[1][0] = plummer; */
+/*   AccelSplines[1][1] = plummer;  */
+
+/* #if defined PERIODIC */
+/*   LatticeForce[0][0] = ewald_force; */
+/*   LatticePotential[0][0] = ewald_psi; */
+/*   LatticeZero[0][0] = 2.8372975; */
+
+/*   LatticeForce[0][1] = LatticeForce[1][0] = ewald_force; */
+/*   LatticePotential[0][1] = LatticePotential[1][0] = ewald_psi; */
+/*   LatticeZero[0][1] = LatticeZero[1][0] = 2.8372975; */
+
+/*   LatticeForce[1][1] = lattice_force_none; */
+/*   LatticePotential[1][1] = lattice_pot_none; */
+/*   LatticeZero[1][1] = 0.0; */
+/* #endif */
+
+/* #if defined OUTPUTPOTENTIAL || defined PMGRID */
+/*   GreensFxns[0][0] = pgdelta; */
+/*   GreensFxns[0][1] = pgdelta; */
+/*   GreensFxns[1][0] = pgdelta; */
+/*   GreensFxns[1][1] = pgyukawa; */
+
+/*   // We don't care about the potentials because we're */
+/*   // not doing non-periodic or gastrophysics */
+/*   PotentialFxns[0][0] = none; */
+/*   PotentialSplines[0][0] = none; */
+
+/*   PotentialSplines[0][1] = none; */
+/*   PotentialFxns[0][1] = none; */
+
+/*   PotentialSplines[1][0] = none; */
+/*   PotentialFxns[1][0] = none; */
+
+/*   PotentialSplines[1][1] = none; */
+/*   PotentialFxns[1][1] = none; */
+  
+/*   PotentialFxns[0][1] = none; */
+/*   PotentialFxns[1][0] = none; */
+/*   PotentialFxns[1][1] = none; */
+/*   PotentialZero[0][0] = 0.0; */
+/*   PotentialZero[0][1] = 0.0; */
+/*   PotentialZero[1][0] = 0.0; */
+/*   PotentialZero[1][1] = 0.0; */
+/* #endif */
+
+  //////////////// END GENERALIZE FORCE TESTING WIRING ///////////////////////////
+
 #else
   printf("ngravs: unsupported testing options defined in the Makefile.  Cannot do (explicit) accumulator tests and Newtonian comparions at the same time");
   endrun(1000);
 #endif
-
 }
 
-
-///////////////// BEGIN FOURIER INTEGRATION ROUTINES /////////////////////
+///////////////////// BEGIN GENERALIZED FORCE AND GREENS FUNCTIONS /////////
 //
-// These routines can compute the reqired shortrange tabulations of the generic
-// force laws from the k-space greens functions to very near machine accuracy.  
-//
-// Please see the ngravs paper for very detailed discussion of the behaviour here
-//
-
-// Some default values here
-// How much to oversample by
-// WHY: This determines the magnitude of the error term: 
-#define OL 5
-
-// How much further (by this multiplicative factor) to go in x-space 
-// than the required 3-\epsilon
-// WHY: This (essentially) determines how deep into k-space to probe the function
-#define LEN 4
-
-// This is then the required number of samples.
-// #define NGRAVS_TPM_N (12*NTAB*OL*LEN-6*OL*LEN+2)
-
-// Note: the product of mTox * jTok = 2\pi mj/N_G
-//       which is what FFTW expects
-FLOAT jTok(int m, double Z, struct ngravsInterpolant *s) {
-
-  return 2.0 * M_PI * m * s->ntab * 6.0 * s->ol/(3.0 * s->ngravs_tpm_n);
-}
-
-FLOAT mTox(int j, struct ngravsInterpolant *s) {
-  
-  return 3.0*j/(6.0 * s->ntab * s->ol);
-}
-
-int gadgetToFourier(int j, struct ngravsInterpolant *s) {
-
-  return s->ol * (6*j + 3);
-}
-
-int fourierToGadget(int i, struct ngravsInterpolant *s) {
-
-  return (i - 3 * s->ol)/(6 * s->ol);
-}
-
-FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z) {
-  
-  FLOAT k2 = k*k;
-  
-  return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
-}
-
-int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI) {
-  
-  fftw_complex *in, *out;
-  int m,j;
-  double sum, norm;
- 
-  in = (fftw_complex *)malloc(sizeof(fftw_complex) * s->ngravs_tpm_n);
-  out = (fftw_complex *)malloc(sizeof(fftw_complex) * s->ngravs_tpm_n);
-  if(!in || !out)
-    return 1;
-  
-  /* // Debug your mappings?! */
-  /* printf("s->ntab: %d\nNGRAVS_TPM_N: %d\nNGRAVS_TPM_N/2: %d\n3/(2s->ntab): %f\n", s->ntab, s->ngravs_tpm_n, s->ngravs_tpm_n/2, 3.0/(2*s->ntab)); */
-  /* for(m = 0; m < s->ntab; ++m) { */
-  /*   printf("%d %d %d %f\n", m, gadgetToFourier(m, s), fourierToGadget(gadgetToFourier(m, s), s), mTox(gadgetToFourier(m, s), s)); */
-  /* } */
-  
-  /* printf("\n"); */
-  /* for(j = 0; j < NGRAVS_TPM_N/2; ++j) { */
-  /*   printf("%d %d %d %f %d\n", j, fourierToGadget(j, s), gadgetToFourier(fourierToGadget(j, s)), mTox(j, s), gadgetToFourier(fourierToGadget(j, s), s) - j); */
-  /* } */
-  /* exit(0); */
-
-  // Zero out all arrays first
-  for(j = 0; j < s->ngravs_tpm_n; ++j) {
-    in[j].re = 0;
-    in[j].im = 0;
-  }
-
-  // 1) FFTW needs this loaded in wonk order
-  in[0].re = fourierIntegrand(jTok(0, Z, s), normKGreen, Z);
-  for(j = 1; j < s->ngravs_tpm_n/2; ++j) {
-
-    in[j].re = fourierIntegrand(jTok(j, Z, s), normKGreen, Z);
-    in[s->ngravs_tpm_n - j].re = fourierIntegrand(jTok(j, Z, s), normKGreen, Z);
-  }
-
-  // 2) Xform
-  fftw_one(s->plan, in, out);
-  norm = 2.0*M_PI * s->ntab * 6.0 * OL/(3.0 * s->ngravs_tpm_n);
-
-  /* // Debug */
-  /* // Make sure the transform is behaving reasonably */
-  /* for(m = 0; m < s->ngravs_tpm_n; ++m) */
-  /*   printf("%.15f %.15f\n", mTox(m, s), out[m].re*norm); */
-  /* exit(0); */
-
-  sum = s->ngravs_tpm_n;
-
-  for(m = 0; m < s->ntab; ++m)
-    oRes[m] = out[gadgetToFourier(m, s)].re * norm;
- 
-  // 3) Integrate so as to constrain the error correctly:
-  // Newton-Cotes 4-point rule
-  // Run the sum at double precision, though we may assign to lower precision
-  sum = 0.0;
-  in[0].re = 0.0;
-  for(m = 0; m < s->ngravs_tpm_n-3; m += 3) {
-    sum += (mTox(m+3, s) - mTox(m, s)) * 0.125 * norm * (out[m].re + 3.0*out[m+1].re + 3.0*out[m+2].re + out[m+3].re);
-    
-    // Put it where you'd expect to find it
-    in[m/3+1].re = sum;
-  }
-
-  // 3.5) Downsample
-  for(m = 0; m < s->ntab; ++m)
-    oResI[m] = in[gadgetToFourier(m, s)/3].re;
-
-  /* // Debug */
-  /* // Make sure the transform is behaving reasonably */
-  /* for(m = 0; m < s->ntab; ++m) */
-  /*   printf("%.15f %.15f\n", mTox(gadgetToFourier(m, s)), oResI[m]); */
-  /* exit(0); */
-
-  free(in);
-  free(out);
-  return 0;
-}
-
-/*! Create a workspace for a table with ntab entries, which goes len deep
- *  into x-space, and oversamples at a frequency of ol (so ol 2 is 2x as many 
- *  samples as would be needed to critically sample */
-struct ngravsInterpolant *ngravsConvolutionInit(int ntab, int len, int ol) {
-
-  struct ngravsInterpolant *s;
-
-  if(! (s = (struct ngravsInterpolant *) malloc(sizeof(struct ngravsInterpolant)))) {
-
-    printf("ngravs: could not allocate table structure... something really bad is happening because I'm tiny!");
-    endrun(1045);
-  }
-  
-  s->ntab = ntab;
-  s->len = len;
-  s->ol = ol;
-  s->ngravs_tpm_n = 12*ntab*ol*len-6*ol*len+2;
-  s->plan = fftw_create_plan(s->ngravs_tpm_n, FFTW_BACKWARD, FFTW_ESTIMATE);
-
-  return s;
-}
-
-void ngravsConvolutionFree(struct ngravsInterpolant *s) {
-
-  fftw_destroy_plan(s->plan);
-  free(s);
-}
-
-//////////////////////// END FOURIER INTEGRATION ROUTINES //////////
-
-/*! Establish the mapping between particle type and the native
- *  gravitational force between two particles of this type.
- *  Then call the user modified wiring function to initialize the table of 
- *  AccelFxn function pointers to point to the appropriate compute functions.  
- *  After, perform sanity checks on the user.
- */
-void init_grav_maps(void) {
-
-  int i, j;
-  int counts[N_GRAVS];
-  int n;
-
-#ifdef BAMTEST
-  double q;
-
-  if(ThisTask == 0) {
-
-    for(q=1.0e-4; q < 10.0; q += 1.0e-4)
-      printf("%e %e\n", q, bambam(2*BAM_EPSILON*M_PI, 2*BAM_EPSILON*M_PI, q, 1));
-    
-    printf("\n");
-    
-    for(q=1.0e-4; q < 10.0; q += 1.0e-4)
-      printf("%e %e\n", q, sourcebaryonbam(4*BAM_EPSILON*M_PI, BAM_EPSILON*M_PI, q, 1));
-
-    printf("\n");
-    
-    for(q=1.0e-4; q < 10.0; q += 1.0e-4)
-      printf("%e %e\n", q, sourcebambaryon(BAM_EPSILON*M_PI, 4*BAM_EPSILON*M_PI, q, 1));
-    
-    MPI_Barrier(MPI_COMM_WORLD);
-    exit(1001);
-  }
-  else
-    MPI_Barrier(MPI_COMM_WORLD);
-#endif
-
-  // KC 10/17/14
-  // Code consistency checks
-  if(ThisTask == 0) {
-
-#ifdef PLACEHIRESREGION
-    printf("ngravs: High-resolution mesh implementation in progress.  Email kcroker@phys.hawaii.edu for status.");
-    endrun(1000);
-#endif
-
-#if defined PMGRID && !defined PERIODIC
-    printf("ngravs: In this version, non-periodic k-space greens determined by FFT of *tabulated* values.  Full transformation implementation in progress.  For now, verify sanity of outputs!");
-#endif
-
-#if !defined PEANOHILBERT && (defined PMGRID || defined PLACEHIRESREGION || defined PERIODIC)
-    printf("ngravs: Gravitational type ordering required for ngravs extension of Fourier mesh code.  This ordering has been implemented on top of Peano-Hilbert ordering within the local task.  Please enable PEANOHILBERT and recompile.\n");
-    endrun(1000);
-#endif
-
-  }
-
-  memset(counts, 0, sizeof(int)*N_GRAVS);
- 
-  /* KC 8/9/14 */
-  TypeToGrav[0] = All.GravityGas;
-#ifdef PMGRID
-  if(TypeToGrav[0]) {
-
-    printf("ngravs: Fourier mesh code requires that gas particles must interact under gravity type 0.  Please rewire and recompile.\n");
-    endrun(1000);
-  }
-#endif
-
-  TypeToGrav[1] = All.GravityHalo;
-  TypeToGrav[2] = All.GravityDisk;
-  TypeToGrav[3] = All.GravityBulge;
-  TypeToGrav[4] = All.GravityStars;
-  TypeToGrav[5] = All.GravityBndry;
-
-  // Sanity check
-  for(i = 0; i < 6; ++i) {
-    if(TypeToGrav[i] >= N_GRAVS || TypeToGrav[i] < 0) {
-      
-      printf("ngravs: native interaction %d declared for type %d does not exist.  We better stop\n", TypeToGrav[i], i);
-      endrun(1000);
-    }
-    
-    // See how many times we use this interaction
-    counts[TypeToGrav[i]]++;
-  }
-  
-  // Provide some output
-  for(i = 0; i < N_GRAVS; ++i) {
-    
-     if(ThisTask == 0) {
-      
-       if(counts[i] > 0)
-	 printf("ngravs: %d particle types natively interact via gravity %d\n", counts[i], i);
-       
-       if(counts[i] == 6 && N_GRAVS > 1)
-	 printf("ngravs: ALL types natively interact via gravity %d.  Recomple with N_GRAVS=1 for best memory performance\n", i);
-     }
-  }
-    
-  // First set the AccelFxns to null, so that we can check for missing settings
-  memset(AccelFxns, 0, N_GRAVS*N_GRAVS*sizeof(gravity));
-  memset(AccelSplines, 0, N_GRAVS*N_GRAVS*sizeof(gravity));
-
-#if defined PERIODIC
-  memset(LatticeForce, 0, N_GRAVS*N_GRAVS*sizeof(latforce));
-  memset(LatticePotential, 0, N_GRAVS*N_GRAVS*sizeof(latpot));
-#endif
-
-#if defined OUTPUTPOTENTIAL || defined PMGRID
-  memset(PotentialFxns, 0, N_GRAVS*N_GRAVS*sizeof(gravity));
-  memset(PotentialSplines, 0, N_GRAVS*N_GRAVS*sizeof(gravity));
-#endif
-
-#ifdef PMGRID
-  memset(GreensFxns, 0, N_GRAVS*N_GRAVS*sizeof(gravity));
-#endif
-
-  // This is the function you should alter
-  wire_grav_maps();
-
-  // Now run the sanity check
-  for(i = 0; i < N_GRAVS; ++i) {
-
-    for(j = 0; j < N_GRAVS; ++j) {
-
-      // Check for null
-      if(!AccelFxns[i][j]) {
-	printf("ngravs: unwired spot for acceleration [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
-	endrun(1000);
-      }
-
-      if(!AccelSplines[i][j]) {
-	printf("ngravs: unwired spot for softening spline [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
-	endrun(1000);
-      }
-
-#if defined PERIODIC && (!defined PMGRID || defined FORCETEST)
-      if(!LatticeForce[i][j]) {
-	printf("ngravs: uwired spot for lattice correction force [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
-	endrun(1000);
-      }
-
-      if(!LatticePotential[i][j]) {
-	printf("ngravs: uwired spot for lattice potential [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
-	endrun(1000);
-      }
-#endif
-
-#if defined OUTPUTPOTENTIAL || defined PMGRID
-      if(!PotentialFxns[i][j]) {
-	printf("ngravs: uwired spot for potential [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
-	endrun(1000);
-      }
-
-      if(!PotentialSplines[i][j]) {
-	printf("ngravs: uwired spot for softening potential spline [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
-	endrun(1000);
-      }
-#endif
-
-#ifdef PMGRID
-      if(!GreensFxns[i][j]) {
-	printf("ngravs: unwired spot for Green's function [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
-	endrun(1000);
-      }
-#endif
-
-#ifndef NGRAVS_L3VIOLATION
-
-      // Check that the forces are symmetric for unit mass
-      // Short circuit on the diagonal
-      if( i != j && ( (*AccelFxns[i][j])(1,1,0.5,3,1) != (*AccelFxns[j][i])(1,1,0.5,3,1))) {
-	printf("ngravs: force between particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
-	endrun(1000);
-      }
-
-      if( i != j && ( (*AccelSplines[i][j])(1,1,0.5,3,1) != (*AccelSplines[j][i])(1,1,0.5,3,1))) {
-	printf("ngravs: softened (spline) force between particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
-	endrun(1000);
-      }
-
-#if defined PERIODIC
-      // Check that the lattice correction forces are symmetric for unit mass
-      // Short circuit on the diagonal
-      if( i != j && (LatticeForce[i][j] != LatticeForce[j][i])) {
-	printf("ngravs: lattice correction force between particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
-	endrun(1000);
-      }
-
-      if( LatticePotential[i][j] != LatticePotential[j][i]) {
-	
-	printf("ngravs: lattice correction potential between particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
-	endrun(1000);
-      }
-#endif
-
-#ifdef PMGRID
-      // Check that Green's functions are symmetric
-      // Short circuit on the diagonal
-      if( i != j && ((*GreensFxns[i][j])(1,1,0.5,3,1) != (*GreensFxns[j][i])(1,1,0.5,3,1)) ) {
-	printf("ngravs: Green's functions for particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
-	endrun(1000);
-      }
-#endif
-
-#if defined OUTPUT_POTENTIAL || defined PMGRID
-      // Check that the Potential functions are symmetric
-      // Short circuit on the diagonal
-      if( i != j && ((*PotentialFxns[i][j])(1,1,0.5,3,1) != (*PotentialFxns[j][i])(1,1,0.5,3,1))) {
-	printf("ngravs: potential functions for particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
-	endrun(1000);
-      }
-
-      if( i != j && ((*PotentialSplines[i][j])(1,1,0.5,3,1) != (*PotentialSplines[j][i])(1,1,0.5,3,1)) ) {
-	printf("ngravs: softened (spline) potential between particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
-	endrun(1000);
-      }
-#endif
-#else
-      if(!ThisTask)
-	printf("ngravs: Newton's 3rd law violations *permitted*, no equality check was performed.\n");
-#endif
-
-    }
-  }
-}
-
-/*! This is no gravity.  It returns 0.0 regardless of input
- */
-double none(double target, double source, double h, double r, long N){ 
-
-  return 0.0;
-}
-
 // KC 10/18/14
 //
 // WARNING: Note that, presumably to eliminate a plethora of unnecessary negations,
@@ -583,6 +329,14 @@ double none(double target, double source, double h, double r, long N){
 //                    the r^2 (since it is already computed), so that we can perform 
 //                    fewer multiplications
 //  
+
+/*! This is no gravity.  It returns 0.0 regardless of input
+ */
+double none(double target, double source, double h, double r, long N){ 
+
+  return 0.0;
+}
+
 /*! This is Newtonian gravity, and is the usual baryon-baryon interaction 
  */
 double newtonian(double target, double source, double h, double r, long N) {
@@ -634,6 +388,33 @@ double pgdelta(double target, double source, double k2, double k, long N) {
 double neg_pgdelta(double target, double source, double k2, double k, long N) {
 
   return -1.0;
+}
+
+// Note that we define the modified force scale such that its
+// dead by the time you reach another boxlength.  This lets us
+// define zero lattice correction.  So, All.BoxSize = 10000
+// and YUKAWA_LAMBDA_INV = 1/250 gives e^(-20) at BoxSize/2
+#define YUKAWA_ALPHA 1
+#define YUKAWA_LAMBDA_INV 2.5e-3
+
+/*! A pure Yukawa force
+ *  Note, distances are at the scale of the box length 
+ *  (and in whatever units that is set to)
+ */
+double yukawa(double target, double source, double h, double r, long N) {
+  
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_LAMBDA_INV) * (YUKAWA_LAMBDA_INV / r + 1.0/h);
+}
+
+/*! A periodic yukawa k-space Greens function, normalized by the Newtonian interaction
+ *  NOTE: k is supplied dimensionlessly in terms of PMGRID so k \in [-PMGRID/2, PMGRID/2]
+ *        so the Yukawa mass should be 
+ */
+double pgyukawa(double target, double source, double k2, double k, long N) {
+
+  // NOTE: YUKAWA_LAMBDA_INV is in 1/BoxSize units
+  // For a BoxSize of 128 --> sqrt(128/2)
+  return k2 / (k2 + 32*32);
 }
 
 /*! This is the Plummer spline used by GADGET-2
@@ -714,15 +495,16 @@ double neg_plummer_pot(double target, double source, double h, double r, long N)
 					    r * (-16.0 + r * (9.6 - 2.133333333333 * r))));
 }
 
+
+/*! This is a (0) lattice correction for Yukawa force
+ */
+
 /*! This is Newtonian gravity with a Yukawa modification
  * c.f. Shirata, Yoshida, et. al 2005
  */
 double newyukawa(double target, double source, double h, double r, long N) {
 
-#define YUKAWA_ALPHA 1
-#define YUKAWA_LAMBDA_INV 1e-2
-
-  return source / (r * h) * -YUKAWA_ALPHA * expm1f(-r*YUKAWA_LAMBDA_INV);
+  return source / h * -YUKAWA_ALPHA * expm1f(-r*YUKAWA_LAMBDA_INV);
 }
 
 /*! This is the BAM-BAM interaction
@@ -989,4 +771,523 @@ double sourcebambaryon_pot(double target, double source, double h, double r, lon
   }
   else
     return rho * atan(reta)/r;
+}
+
+/*! This function computes the potential correction term by means of Ewald
+ *  summation.
+ */
+double ewald_psi(double x[3])
+{
+  double alpha, psi;
+  double r, sum1, sum2, hdotx;
+  double dx[3];
+  int i, n[3], h[3], h2;
+
+  alpha = 2.0;
+
+  for(n[0] = -4, sum1 = 0; n[0] <= 4; n[0]++)
+    for(n[1] = -4; n[1] <= 4; n[1]++)
+      for(n[2] = -4; n[2] <= 4; n[2]++)
+	{
+	  for(i = 0; i < 3; i++)
+	    dx[i] = x[i] - n[i];
+
+	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+	  sum1 += erfc(alpha * r) / r;
+	}
+
+  for(h[0] = -4, sum2 = 0; h[0] <= 4; h[0]++)
+    for(h[1] = -4; h[1] <= 4; h[1]++)
+      for(h[2] = -4; h[2] <= 4; h[2]++)
+	{
+	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
+	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
+	  if(h2 > 0)
+	    sum2 += 1 / (M_PI * h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * cos(2 * M_PI * hdotx);
+	}
+
+  r = sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
+
+  psi = M_PI / (alpha * alpha) - sum1 - sum2 + 1 / r;
+
+  return psi;
+}
+
+double lattice_pot_none(double x[3]) {
+
+  return 0.0;
+}
+
+void lattice_force_none(int iii, int jjj, int kkk, double x[3], double force[3]) {
+  
+  int i;
+
+  for(i = 0; i < 3; ++i)
+    force[i] = 0;
+}
+
+/*! This function computes the force correction term (difference between full
+ *  force of infinite lattice and nearest image) by Ewald summation.
+ */
+void ewald_force(int iii, int jjj, int kkk, double x[3], double force[3])
+{
+  double alpha, r2;
+  double r, val, hdotx, dx[3];
+  int i, h[3], n[3], h2;
+
+  alpha = 2.0;
+
+  for(i = 0; i < 3; i++)
+    force[i] = 0;
+
+  if(iii == 0 && jjj == 0 && kkk == 0)
+    return;
+
+  r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
+
+  for(i = 0; i < 3; i++)
+    force[i] += x[i] / (r2 * sqrt(r2));
+
+  // KC 12/4/14
+  // Looks like this takes the first four images out in position space in each direction (so 
+  // bracketing by 8 overall)
+  for(n[0] = -4; n[0] <= 4; n[0]++)
+    for(n[1] = -4; n[1] <= 4; n[1]++)
+      for(n[2] = -4; n[2] <= 4; n[2]++)
+	{
+	  for(i = 0; i < 3; i++)
+	    dx[i] = x[i] - n[i];
+
+	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+
+	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
+
+	  for(i = 0; i < 3; i++)
+	    force[i] -= dx[i] / (r * r * r) * val;
+	}
+
+  // KC 12/4/14
+  // Looks like this takes the first four images in momentum space in each diretion (again
+  // bracketing by 8 overall)
+  for(h[0] = -4; h[0] <= 4; h[0]++)
+    for(h[1] = -4; h[1] <= 4; h[1]++)
+      for(h[2] = -4; h[2] <= 4; h[2]++)
+	{
+	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
+	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
+
+	  if(h2 > 0)
+	    {
+	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
+
+	      for(i = 0; i < 3; i++)
+		force[i] -= h[i] * val;
+	    }
+	}
+}
+
+
+///////////////// END GENERALIZED FORCE AND GREENS FUNCTIONS ////////////
+//
+// Below this are things you should not need to modify
+//
+/////////////////////////////////////////////////////////////////////////
+
+///////////////// BEGIN FOURIER INTEGRATION ROUTINES /////////////////////
+//
+// These routines can compute the reqired shortrange tabulations of the generic
+// force laws from the k-space greens functions to very near machine accuracy.  
+//
+// Please see the ngravs paper for very detailed discussion of the behaviour here
+//
+
+// Some default values here
+// How much to oversample by
+// WHY: This determines the magnitude of the error term: 
+#define OL 20
+
+// How much further (by this multiplicative factor) to go in x-space 
+// than the required 3-\epsilon
+// WHY: This (essentially) determines how deep into k-space to probe the function
+#define LEN 4
+
+// This is then the required number of samples.
+// #define NGRAVS_TPM_N (12*NTAB*OL*LEN-6*OL*LEN+2)
+
+// Note: the product of mTox * jTok = 2\pi mj/N_G
+//       which is what FFTW expects
+FLOAT jTok(int m, double Z, struct ngravsInterpolant *s) {
+
+  return 2.0 * M_PI * m * s->ntab * 6.0 * s->ol/(3.0 * s->ngravs_tpm_n);
+}
+
+FLOAT mTox(int j, struct ngravsInterpolant *s) {
+  
+  return 3.0*j/(6.0 * s->ntab * s->ol);
+}
+
+int gadgetToFourier(int j, struct ngravsInterpolant *s) {
+
+  return s->ol * (6*j + 3);
+}
+
+int fourierToGadget(int i, struct ngravsInterpolant *s) {
+
+  return (i - 3 * s->ol)/(6 * s->ol);
+}
+
+FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z) {
+  
+  FLOAT k2 = k*k;
+  
+  return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
+}
+
+int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI) {
+  
+  fftw_complex *in, *out;
+  int m,j;
+  double sum, norm;
+ 
+  in = (fftw_complex *)malloc(sizeof(fftw_complex) * s->ngravs_tpm_n);
+  out = (fftw_complex *)malloc(sizeof(fftw_complex) * s->ngravs_tpm_n);
+  if(!in || !out)
+    return 1;
+  
+  /* // Debug your mappings?! */
+  /* printf("s->ntab: %d\nNGRAVS_TPM_N: %d\nNGRAVS_TPM_N/2: %d\n3/(2s->ntab): %f\n", s->ntab, s->ngravs_tpm_n, s->ngravs_tpm_n/2, 3.0/(2*s->ntab)); */
+  /* for(m = 0; m < s->ntab; ++m) { */
+  /*   printf("%d %d %d %f\n", m, gadgetToFourier(m, s), fourierToGadget(gadgetToFourier(m, s), s), mTox(gadgetToFourier(m, s), s)); */
+  /* } */
+  
+  /* printf("\n"); */
+  /* for(j = 0; j < NGRAVS_TPM_N/2; ++j) { */
+  /*   printf("%d %d %d %f %d\n", j, fourierToGadget(j, s), gadgetToFourier(fourierToGadget(j, s)), mTox(j, s), gadgetToFourier(fourierToGadget(j, s), s) - j); */
+  /* } */
+  /* exit(0); */
+
+  // Zero out all arrays first
+  for(j = 0; j < s->ngravs_tpm_n; ++j) {
+    in[j].re = 0;
+    in[j].im = 0;
+  }
+
+  // 1) FFTW needs this loaded in wonk order
+  in[0].re = fourierIntegrand(jTok(0, Z, s), normKGreen, Z);
+  for(j = 1; j < s->ngravs_tpm_n/2; ++j) {
+
+    in[j].re = fourierIntegrand(jTok(j, Z, s), normKGreen, Z);
+    in[s->ngravs_tpm_n - j].re = fourierIntegrand(jTok(j, Z, s), normKGreen, Z);
+  }
+
+  // 2) Xform
+  fftw_one(s->plan, in, out);
+  norm = 2.0*M_PI * s->ntab * 6.0 * OL/(3.0 * s->ngravs_tpm_n);
+
+  /* // Debug */
+  /* // Make sure the transform is behaving reasonably */
+  /* for(m = 0; m < s->ngravs_tpm_n; ++m) */
+  /*   printf("%.15f %.15f\n", mTox(m, s), out[m].re*norm); */
+  /* exit(0); */
+
+  sum = s->ngravs_tpm_n;
+
+  for(m = 0; m < s->ntab; ++m)
+    oRes[m] = out[gadgetToFourier(m, s)].re * norm;
+ 
+  // 3) Integrate so as to constrain the error correctly:
+  // Newton-Cotes 4-point rule
+  // Run the sum at double precision, though we may assign to lower precision
+  sum = 0.0;
+  in[0].re = 0.0;
+  for(m = 0; m < s->ngravs_tpm_n-3; m += 3) {
+    sum += (mTox(m+3, s) - mTox(m, s)) * 0.125 * norm * (out[m].re + 3.0*out[m+1].re + 3.0*out[m+2].re + out[m+3].re);
+    
+    // Put it where you'd expect to find it
+    in[m/3+1].re = sum;
+  }
+
+  // 3.5) Downsample
+  for(m = 0; m < s->ntab; ++m)
+    oResI[m] = in[gadgetToFourier(m, s)/3].re;
+
+  /* // Debug */
+  /* // Make sure the transform is behaving reasonably */
+  /* for(m = 0; m < s->ntab; ++m) */
+  /*   printf("%.15f %.15f\n", mTox(gadgetToFourier(m, s)), oResI[m]); */
+  /* exit(0); */
+
+  free(in);
+  free(out);
+  return 0;
+}
+
+/*! Create a workspace for a table with ntab entries, which goes len deep
+ *  into x-space, and oversamples at a frequency of ol (so ol 2 is 2x as many 
+ *  samples as would be needed to critically sample */
+struct ngravsInterpolant *ngravsConvolutionInit(int ntab, int len, int ol) {
+
+  struct ngravsInterpolant *s;
+
+  if(! (s = (struct ngravsInterpolant *) malloc(sizeof(struct ngravsInterpolant)))) {
+
+    printf("ngravs: could not allocate table structure... something really bad is happening because I'm tiny!");
+    endrun(1045);
+  }
+  
+  s->ntab = ntab;
+  s->len = len;
+  s->ol = ol;
+  s->ngravs_tpm_n = 12*ntab*ol*len-6*ol*len+2;
+  s->plan = fftw_create_plan(s->ngravs_tpm_n, FFTW_BACKWARD, FFTW_ESTIMATE);
+
+  return s;
+}
+
+void ngravsConvolutionFree(struct ngravsInterpolant *s) {
+
+  fftw_destroy_plan(s->plan);
+  free(s);
+}
+
+FLOAT hermiteSpline(FLOAT u, struct ngravsInterpolant s, FLOAT *tab, FLOAT *dtab) {
+
+  int i = 0;
+
+  // Note that u should be rescaled to [0,1] a priori
+  // Use factorized form to keep addition of terms of roughly the same order  
+  return tab[i] * (1 + 2*u) * (1-u) * (1-u) + 
+    dtab[i] * u * (1-u) * (1-u) +
+    tab[i+1] * u*u*(3-2*u) +
+    dtab[i+1] * u*u*(u - 1);
+}
+
+//////////////////////// END FOURIER INTEGRATION ROUTINES //////////
+
+/*! Establish the mapping between particle type and the native
+ *  gravitational force between two particles of this type.
+ *  Then call the user modified wiring function to initialize the table of 
+ *  AccelFxn function pointers to point to the appropriate compute functions.  
+ *  After, perform sanity checks on the user.
+ */
+void init_grav_maps(void) {
+
+  int i, j;
+  int counts[N_GRAVS];
+  int n;
+
+#ifdef BAMTEST
+  double q;
+
+  if(ThisTask == 0) {
+
+    for(q=1.0e-4; q < 10.0; q += 1.0e-4)
+      printf("%e %e\n", q, bambam(2*BAM_EPSILON*M_PI, 2*BAM_EPSILON*M_PI, q, 1));
+    
+    printf("\n");
+    
+    for(q=1.0e-4; q < 10.0; q += 1.0e-4)
+      printf("%e %e\n", q, sourcebaryonbam(4*BAM_EPSILON*M_PI, BAM_EPSILON*M_PI, q, 1));
+
+    printf("\n");
+    
+    for(q=1.0e-4; q < 10.0; q += 1.0e-4)
+      printf("%e %e\n", q, sourcebambaryon(BAM_EPSILON*M_PI, 4*BAM_EPSILON*M_PI, q, 1));
+    
+    MPI_Barrier(MPI_COMM_WORLD);
+    exit(1001);
+  }
+  else
+    MPI_Barrier(MPI_COMM_WORLD);
+#endif
+
+  // KC 10/17/14
+  // Code consistency checks
+  if(ThisTask == 0) {
+
+#ifdef PLACEHIRESREGION
+    printf("ngravs: High-resolution mesh implementation in progress.  Email kcroker@phys.hawaii.edu for status.");
+    endrun(1000);
+#endif
+
+#if defined PMGRID && !defined PERIODIC
+    printf("ngravs: In this version, non-periodic k-space greens determined by FFT of *tabulated* values.  Full transformation implementation in progress.  For now, verify sanity of outputs!");
+#endif
+
+#if !defined PEANOHILBERT && (defined PMGRID || defined PLACEHIRESREGION || defined PERIODIC)
+    printf("ngravs: Gravitational type ordering required for ngravs extension of Fourier mesh code.  This ordering has been implemented on top of Peano-Hilbert ordering within the local task.  Please enable PEANOHILBERT and recompile.\n");
+    endrun(1000);
+#endif
+
+  }
+
+  memset(counts, 0, sizeof(int)*N_GRAVS);
+ 
+  /* KC 8/9/14 */
+  TypeToGrav[0] = All.GravityGas;
+#ifdef PMGRID
+  if(TypeToGrav[0]) {
+
+    printf("ngravs: Fourier mesh code requires that gas particles must interact under gravity type 0.  Please rewire and recompile.\n");
+    endrun(1000);
+  }
+#endif
+
+  TypeToGrav[1] = All.GravityHalo;
+  TypeToGrav[2] = All.GravityDisk;
+  TypeToGrav[3] = All.GravityBulge;
+  TypeToGrav[4] = All.GravityStars;
+  TypeToGrav[5] = All.GravityBndry;
+
+  // Sanity check
+  for(i = 0; i < 6; ++i) {
+    if(TypeToGrav[i] >= N_GRAVS || TypeToGrav[i] < 0) {
+      
+      printf("ngravs: native interaction %d declared for type %d does not exist.  We better stop\n", TypeToGrav[i], i);
+      endrun(1000);
+    }
+    
+    // See how many times we use this interaction
+    counts[TypeToGrav[i]]++;
+  }
+  
+  // Provide some output
+  for(i = 0; i < N_GRAVS; ++i) {
+    
+     if(ThisTask == 0) {
+      
+       if(counts[i] > 0)
+	 printf("ngravs: %d particle types natively interact via gravity %d\n", counts[i], i);
+       
+       if(counts[i] == 6 && N_GRAVS > 1)
+	 printf("ngravs: ALL types natively interact via gravity %d.  Recomple with N_GRAVS=1 for best memory performance\n", i);
+     }
+  }
+    
+  // First set the AccelFxns to null, so that we can check for missing settings
+  memset(AccelFxns, 0, N_GRAVS*N_GRAVS*sizeof(gravity));
+  memset(AccelSplines, 0, N_GRAVS*N_GRAVS*sizeof(gravity));
+
+#if defined PERIODIC
+  memset(LatticeForce, 0, N_GRAVS*N_GRAVS*sizeof(latforce));
+  memset(LatticePotential, 0, N_GRAVS*N_GRAVS*sizeof(latpot));
+#endif
+
+#if defined OUTPUTPOTENTIAL || defined PMGRID
+  memset(PotentialFxns, 0, N_GRAVS*N_GRAVS*sizeof(gravity));
+  memset(PotentialSplines, 0, N_GRAVS*N_GRAVS*sizeof(gravity));
+#endif
+
+#ifdef PMGRID
+  memset(GreensFxns, 0, N_GRAVS*N_GRAVS*sizeof(gravity));
+#endif
+
+  // This is the function you should alter
+  wire_grav_maps();
+
+  // Now run the sanity check
+  for(i = 0; i < N_GRAVS; ++i) {
+
+    for(j = 0; j < N_GRAVS; ++j) {
+
+      // Check for null
+      if(!AccelFxns[i][j]) {
+	printf("ngravs: unwired spot for acceleration [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
+	endrun(1000);
+      }
+
+      if(!AccelSplines[i][j]) {
+	printf("ngravs: unwired spot for softening spline [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
+	endrun(1000);
+      }
+
+#if defined PERIODIC && (!defined PMGRID || defined FORCETEST)
+      if(!LatticeForce[i][j]) {
+	printf("ngravs: uwired spot for lattice correction force [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
+	endrun(1000);
+      }
+
+      if(!LatticePotential[i][j]) {
+	printf("ngravs: uwired spot for lattice potential [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
+	endrun(1000);
+      }
+#endif
+
+#if defined OUTPUTPOTENTIAL || defined PMGRID
+      if(!PotentialFxns[i][j]) {
+	printf("ngravs: uwired spot for potential [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
+	endrun(1000);
+      }
+
+      if(!PotentialSplines[i][j]) {
+	printf("ngravs: uwired spot for softening potential spline [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
+	endrun(1000);
+      }
+#endif
+
+#ifdef PMGRID
+      if(!GreensFxns[i][j]) {
+	printf("ngravs: unwired spot for Green's function [TARGET][SOURCE]: [%d][%d].  Please fix and recompile.\n", i, j);
+	endrun(1000);
+      }
+#endif
+
+#ifndef NGRAVS_L3VIOLATION
+
+      // Check that the forces are symmetric for unit mass
+      // Short circuit on the diagonal
+      if( i != j && ( (*AccelFxns[i][j])(1,1,0.5,3,1) != (*AccelFxns[j][i])(1,1,0.5,3,1))) {
+	printf("ngravs: force between particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
+	endrun(1000);
+      }
+
+      if( i != j && ( (*AccelSplines[i][j])(1,1,0.5,3,1) != (*AccelSplines[j][i])(1,1,0.5,3,1))) {
+	printf("ngravs: softened (spline) force between particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
+	endrun(1000);
+      }
+
+#if defined PERIODIC
+      // Check that the lattice correction forces are symmetric for unit mass
+      // Short circuit on the diagonal
+      if( i != j && (LatticeForce[i][j] != LatticeForce[j][i])) {
+	printf("ngravs: lattice correction force between particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
+	endrun(1000);
+      }
+
+      if( LatticePotential[i][j] != LatticePotential[j][i]) {
+	
+	printf("ngravs: lattice correction potential between particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
+	endrun(1000);
+      }
+#endif
+
+#ifdef PMGRID
+      // Check that Green's functions are symmetric
+      // Short circuit on the diagonal
+      if( i != j && ((*GreensFxns[i][j])(1,1,0.5,3,1) != (*GreensFxns[j][i])(1,1,0.5,3,1)) ) {
+	printf("ngravs: Green's functions for particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
+	endrun(1000);
+      }
+#endif
+
+#if defined OUTPUT_POTENTIAL || defined PMGRID
+      // Check that the Potential functions are symmetric
+      // Short circuit on the diagonal
+      if( i != j && ((*PotentialFxns[i][j])(1,1,0.5,3,1) != (*PotentialFxns[j][i])(1,1,0.5,3,1))) {
+	printf("ngravs: potential functions for particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
+	endrun(1000);
+      }
+
+      if( i != j && ((*PotentialSplines[i][j])(1,1,0.5,3,1) != (*PotentialSplines[j][i])(1,1,0.5,3,1)) ) {
+	printf("ngravs: softened (spline) potential between particles which natively interact through gravities %d and %d is not symmetric.  Newton's 3rd law violated.  Stopping.\n", i, j);
+	endrun(1000);
+      }
+#endif
+#else
+      if(!ThisTask)
+	printf("ngravs: Newton's 3rd law violations *permitted*, no equality check was performed.\n");
+#endif
+
+    }
+  }
 }

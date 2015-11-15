@@ -346,8 +346,8 @@ void pm_setup_nonperiodic_kernel(void)
   int ip;
 
   // ngravs
-  int n, m, tabindex;
-  double utorpi;
+  int n, m;
+  double asmth2;
 
   /* now set up kernel and its Fourier transform */
 
@@ -359,12 +359,105 @@ void pm_setup_nonperiodic_kernel(void)
       for(i = 0; i < fftsize; i++)	/* clear local density field */
    	kernel[0][n][m][i] = 0;
 
-  // KC 11/4/15
-  // Note that we gotta use this
-  utorwpi = 1.0/(2*M_PI*All.Asmth[0]);
-
   for(n = 0; n < N_GRAVS; ++n)
     for(m = 0; m < N_GRAVS; ++m) {
+
+      // KC 11/12/15
+      // 
+      // New strategy: we will sample the k-space function, but do so at 1/2.
+      // This will let us use the existing GRID^3 dimension workspace as a, 
+      // well, direct workspace.  (so we pass null to the fftw routines here)
+      //
+      // We will then trilinearly interpolate to the k-space kernel the result
+      // using exact value when we have them.  If trilinear is good enough for
+      // Ewald, then its probably good enough here.  We won't need ghost cells
+      // for this because we have the exact values on the edges already.
+      //
+      /* for(i = slabstart_x; i < (slabstart_x + nslab_x); i++) */
+      /* 	for(j = 0; j < GRID; j++) */
+      /* 	  for(k = 0; k < GRID; k++) */
+      //
+      // Note, we gotta start in transposed order!
+      // And we gotta get the halfcomplex assignment correct.  Ugh.
+      
+      // KC 12/12/15
+      fac = All.G / (M_PI * All.BoxSize);	/* to get potential */
+      asmth2 = (2 * M_PI) * ASMTH / (double) GRID; ///All.Asmth[0] / All.BoxSize;
+      asmth2 *= asmth2;
+      fprintf(stderr, "# fac = %.15e, asmth2 = %.15e\n", fac, asmth2);
+
+      for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
+	for(x = 0; x < GRID; x++)
+	  for(z = 0; z < GRID / 2 + 1; z++)
+	    {
+	      if(x > GRID / 2)
+		kx = x - GRID;
+	      else
+		kx = x;
+	      if(y > GRID / 2)
+		ky = y - GRID;
+	      else
+		ky = y;
+	      if(z > GRID / 2)
+		kz = z - GRID;
+	      else
+		kz = z;
+
+	      k2 = kx * kx + ky * ky + kz * kz;
+	      
+	      if(k2 > 0)
+		{
+		  fx = fy = fz = 1;
+		  if(kx != 0)
+		    {
+		      fx = (M_PI * kx) / GRID;
+		      fx = sin(fx) / fx;
+		    }
+		  if(ky != 0)
+		    {
+		      fy = (M_PI * ky) / GRID;
+		      fy = sin(fy) / fy;
+		    }
+		  if(kz != 0)
+		    {
+		      fz = (M_PI * kz) / GRID;
+		      fz = sin(fz) / fz;
+		    }
+		  ff = 1 / (fx * fy * fz);
+		  ff = ff * ff * ff * ff;
+		  
+		  ip = GRID * (GRID / 2 + 1) * (y - slabstart_y) + (GRID / 2 + 1) * x + z;
+	      
+		  // XXX
+		  // This is only for the non-highres mesh
+		  // Assign the real and complex parts
+		  // 
+		  // NOTE: added stretch of 2x to the exp, so that we can sample more low power
+		  //       
+		  ((fftw_complex *) workspace)[ip].re = 
+		    -exp(-k2 * asmth2) * (*GreensFxns[n][m])(All.MassTable[n], All.MassTable[m], k2, 0.0, 1) * fac / k2;
+		  ((fftw_complex *) workspace)[ip].im = 0.0;
+		  
+		  //		  fprintf(stderr, "%.15e %.15e\n", sqrt(k2), ((fftw_complex *) workspace)[ip].re);
+	      }
+	      else {
+		// XXX?  It should be zero.  In  pm_periodic.c, everthing is zeroed before the computation
+		((fftw_complex *) workspace)[ip].re = 0.0;
+		((fftw_complex *) workspace)[ip].im = 0.0;
+	      }
+	    }
+
+      // KC 11/12/15
+      // Here we do it with null, so we can use the workspace itself without having to allocate new 
+      // stuff everywhere
+      rfftwnd_mpi(fft_inverse_plan, 1, workspace, NULL, FFTW_TRANSPOSED_ORDER);
+
+      // workspace now contains the non-periodic r-space kernel ** IN THE LOWER OCTANT **
+      // and at ** HALF RESOLUTION **, addressable as fftw_reals
+
+      // DEBUG
+      fprintf(stderr, "\n# Now the transforms\n");
+
       for(i = slabstart_x; i < (slabstart_x + nslab_x); i++)
 	for(j = 0; j < GRID; j++)
 	  for(k = 0; k < GRID; k++)
@@ -381,23 +474,41 @@ void pm_setup_nonperiodic_kernel(void)
 		z -= 1.0;
 	    
 	      r = sqrt(x * x + y * y + z * z);
-	      //u = 0.5 * r / (((double) ASMTH) / GRID);
+	      fprintf(stderr, "%.15e %.15e\n", r, workspace[GRID * GRID2 * (i -slabstart_x) + GRID2 * j + k]);
+	    }
+      fprintf(stderr, "\n");
+      endrun(8686);
+
+      // ORIGINAL CODE
+
+      for(i = slabstart_x; i < (slabstart_x + nslab_x); i++)
+	for(j = 0; j < GRID; j++)
+	  for(k = 0; k < GRID; k++)
+	    {
+	      x = ((double) i) / GRID;
+	      y = ((double) j) / GRID;
+	      z = ((double) k) / GRID;
+	      
+	      if(x >= 0.5)
+		x -= 1.0;
+	      if(y >= 0.5)
+		y -= 1.0;
+	      if(z >= 0.5)
+		z -= 1.0;
 	    
-	      // KC 11/1/15
-	      // We have to go to the table here... it remains
-	      // to be seen how this performs accuracy wise.  I suspect it won't be
-	      // that great :/
-	      asmthfac = 0.5 / All.Asmth[0] * (NTAB / 3.0);
-	      tabindex = (int)(asmthfac * r);
-		      
-	      if(r > 0 && tabindex < NTAB) {
+	      r = sqrt(x * x + y * y + z * z);
+	      u = 0.5 * r / (((double) ASMTH) / GRID);
+	      
+	      fprintf(stderr, "%.15e\n", u);
+
+	      if(r > 0) {
 		
 		// XXX
 		// Note also that the PotentialFxns had better be hardcoding the masses
 		// as parameters, or else shortrange_fourier_pot will be mistabulated.
-		kernel[0][n][m][GRID * GRID2 * (i -slabstart_x) + GRID2 * j + k] =
-		  -(*PotentialFxns[n][m])(MassTable[nA], MassTable[nB], 0.0, r, 1) 
-		  + utorwpi * shortrange_fourier_pot[nA][nB][tabindex];
+		/* kernel[0][n][m][GRID * GRID2 * (i -slabstart_x) + GRID2 * j + k] = */
+		/*   -(*PotentialFxns[n][m])(All.MassTable[n], All.MassTable[m], 0.0, r, 1)  */
+		/*   + utorwpi * csplineInterpolate(npFourierTable[n][m], npFourierIntTable[n][m], u); */
 	      }
 	      else if(r > 0) {
 		// XXX
@@ -409,7 +520,7 @@ void pm_setup_nonperiodic_kernel(void)
 	    	kernel[0][n][m][GRID * GRID2 * (i - slabstart_x) + GRID2 * j + k] = PotentialZero[n][m];
 	      }
 	    }
-      
+      endrun(8989);
       /* do the forward transform of the kernel */
       rfftwnd_mpi(fft_forward_plan, 1, kernel[0][n][m], workspace, FFTW_TRANSPOSED_ORDER);
     }

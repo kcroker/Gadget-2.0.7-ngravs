@@ -28,11 +28,13 @@ double bambam(double target, double source, double h, double r, long N);
 double sourcebaryonbam(double target, double source, double h, double r, long N);
 double sourcebambaryon(double target, double source, double h, double r, long N);
 double newyukawa(double target, double source, double h, double r, long N);
+double yukawa(double target, double source, double h, double r, long N);
 
 // (Periodic) Greens functions
 double newtonKGreen(double target, double source, double k2, double k, long N);
 double pgdelta(double target, double source, double k2, double k, long N);
 double neg_pgdelta(double target, double source, double k2, double k, long N); 
+double pgyukawa(double target, double source, double k2, double k, long N); 
 
 // Potential functions
 double newtonian_pot(double target, double source, double h, double r, long N);
@@ -49,6 +51,10 @@ double null_spline(double target, double source, double h, double r, long N);
 // Potential spline functions
 double plummer_pot(double target, double source, double h, double r, long N);
 double neg_plummer_pot(double target, double source, double h, double r, long N);
+
+// Lattice functions
+void lattice_force_none(int iii, int jjj, int kkk, double x[3], double force[3]);
+double lattice_pot_none(double x[3]);
 
 // Functions required for convolution
 int gadgetToFourier(int i, struct ngravsInterpolant *s);

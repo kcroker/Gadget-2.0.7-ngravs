@@ -3232,7 +3232,7 @@ void force_treeallocate(int maxnodes, int maxpart)
       // this may take a bit of time (though it only needs to be performed once)
 #ifdef PMGRID
 
-      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 4, 5);
+      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 4, 20);
       Z = 0.5; 
       
       printf("ngravs: (Task %d) tabulating shortrange correction factors for dimensionless transition scale %f...\n", 
@@ -3465,7 +3465,9 @@ void dump_particles(void)
  *  Advances and Perspectives, 1980).  Care must be taken by the *user* to guarantee
  *  that the routines defined in LatticeForce[][] and LatticeSelf[][] 
  *  give good approximations to the lattice sum of whatever distribution is under
- *  study.  
+ *  study.  As an example, Yukawa has very poor convergence in k-space, which 
+ *  is the trick employed by the Ewald/Bertaut class of procedures to produce a rapidly
+ *  convergent sum in r-space.
  *  
  *  The correction fields
  *  are used to obtain the full periodic force if periodic boundaries
@@ -3778,106 +3780,5 @@ double lattice_pot_corr(double dx, double dy, double dz, int target, int source)
 }
 
 
-
-/*! This function computes the potential correction term by means of Ewald
- *  summation.
- */
-double ewald_psi(double x[3])
-{
-  double alpha, psi;
-  double r, sum1, sum2, hdotx;
-  double dx[3];
-  int i, n[3], h[3], h2;
-
-  alpha = 2.0;
-
-  for(n[0] = -4, sum1 = 0; n[0] <= 4; n[0]++)
-    for(n[1] = -4; n[1] <= 4; n[1]++)
-      for(n[2] = -4; n[2] <= 4; n[2]++)
-	{
-	  for(i = 0; i < 3; i++)
-	    dx[i] = x[i] - n[i];
-
-	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
-	  sum1 += erfc(alpha * r) / r;
-	}
-
-  for(h[0] = -4, sum2 = 0; h[0] <= 4; h[0]++)
-    for(h[1] = -4; h[1] <= 4; h[1]++)
-      for(h[2] = -4; h[2] <= 4; h[2]++)
-	{
-	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
-	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
-	  if(h2 > 0)
-	    sum2 += 1 / (M_PI * h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * cos(2 * M_PI * hdotx);
-	}
-
-  r = sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
-
-  psi = M_PI / (alpha * alpha) - sum1 - sum2 + 1 / r;
-
-  return psi;
-}
-
-
-/*! This function computes the force correction term (difference between full
- *  force of infinite lattice and nearest image) by Ewald summation.
- */
-void ewald_force(int iii, int jjj, int kkk, double x[3], double force[3])
-{
-  double alpha, r2;
-  double r, val, hdotx, dx[3];
-  int i, h[3], n[3], h2;
-
-  alpha = 2.0;
-
-  for(i = 0; i < 3; i++)
-    force[i] = 0;
-
-  if(iii == 0 && jjj == 0 && kkk == 0)
-    return;
-
-  r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
-
-  for(i = 0; i < 3; i++)
-    force[i] += x[i] / (r2 * sqrt(r2));
-
-  // KC 12/4/14
-  // Looks like this takes the first four images out in position space in each direction (so 
-  // bracketing by 8 overall)
-  for(n[0] = -4; n[0] <= 4; n[0]++)
-    for(n[1] = -4; n[1] <= 4; n[1]++)
-      for(n[2] = -4; n[2] <= 4; n[2]++)
-	{
-	  for(i = 0; i < 3; i++)
-	    dx[i] = x[i] - n[i];
-
-	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
-
-	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
-
-	  for(i = 0; i < 3; i++)
-	    force[i] -= dx[i] / (r * r * r) * val;
-	}
-
-  // KC 12/4/14
-  // Looks like this takes the first four images in momentum space in each diretion (again
-  // bracketing by 8 overall)
-  for(h[0] = -4; h[0] <= 4; h[0]++)
-    for(h[1] = -4; h[1] <= 4; h[1]++)
-      for(h[2] = -4; h[2] <= 4; h[2]++)
-	{
-	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
-	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
-
-	  if(h2 > 0)
-	    {
-	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
-
-	      for(i = 0; i < 3; i++)
-		force[i] -= h[i] * val;
-	    }
-	}
-}
 
 #endif
