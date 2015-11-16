@@ -1095,7 +1095,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 	  if(h2 > 0)
 	    {
 	      //	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
-	      val = 2*M_PI*exp(-(4*M_PI*M_PI*h2 - YUKAWA_IMASS*YUKAWA_IMASS)/(4*alpha*alpha))*sin(2*M_PI*hdotx) / 
+	      val = 2*M_PI*exp(-(4*M_PI*M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS)/(4*alpha*alpha))*sin(2*M_PI*hdotx) / 
 		(M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS/(4*M_PI));
 	      
 	      // KC 11/16/15
