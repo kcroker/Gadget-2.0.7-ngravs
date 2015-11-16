@@ -3483,7 +3483,7 @@ void lattice_init(void)
 {
   int i, j, k, beg, len, size, n, task, count;
   double x[3], force[3];
-  char buf[200];
+  char buf[512];
   FILE *fd;
   
   int l, m;
@@ -3612,6 +3612,8 @@ void lattice_init(void)
 	  MPI_Barrier(MPI_COMM_WORLD);
 	}
 
+      // KC 11/16/15
+      // Here's the 1/L that shows up later
       fac_intp = 2 * EN / All.BoxSize;
 
       for(i = 0; i <= EN; i++)

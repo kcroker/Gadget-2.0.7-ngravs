@@ -44,6 +44,7 @@
 void wire_grav_maps(void) {
 
   int i,j;
+  char fname[128];
 
   // KC 8/11/14 Wiring
   //
@@ -194,10 +195,14 @@ void wire_grav_maps(void) {
   //
   ///////////////////////////////////////////////////////////////////////
 
+  // Create a unique name for this value of the field mass
+  snprintf(fname, 128, "Yukawa_%f", YUKAWA_IMASS);
+  printf("ngravs: %s\n", fname);
+
   for(i = 0; i < N_GRAVS; ++i) {
     for(j = 0; j < N_GRAVS; ++j) {
 
-      NgravsNames[i][j] = "Yukawa";
+      NgravsNames[i][j] = fname;
       AccelFxns[i][j] = yukawa;
 
       // We set the Yukawa spline to plummer since
@@ -387,7 +392,7 @@ double pgyukawa(double target, double source, double k2, double k, long N) {
 
   // NOTE: YUKAWA_IMASS is in 1/BoxSize units
   // For a BoxSize of 128 --> sqrt(128/2)
-  return k2 / (k2 + 32*32);
+  return k2 / (k2 + YUKAWA_IMASS*YUKAWA_IMASS);
 }
 
 /*! This is the Plummer spline used by GADGET-2
@@ -824,6 +829,10 @@ double yukawa_madelung(double ym) {
   // KC 11/16/15
   // We again adopt the same notation as that used in Gadget-2, so their beta
   // is our alpha, etc (see comments above)
+  //
+  // Note something very interesting:
+  // This function should be *INDEPENDENT* of alpha if ym=0
+  // Gotta figure out why its not...
   alpha = 5.64;
 
   // Going out to the same distance seems like a good idea, no?
@@ -832,12 +841,13 @@ double yukawa_madelung(double ym) {
   // must be putting it back in somewhere.  So we elide it.
   for(n[0] = -5, sum1 = 0, sum2 = 0; n[0] <= 5; n[0]++) {
     for(n[1] = -5; n[1] <= 5; n[1]++) {
-      for(n[2] = -5; n[2] <= 5; n[2]++)	{
+      for(n[2] = -5; n[2] <= 5; n[2]++) {
+
 	// Here we use n for both the k sum and the n sum because they are both dimensionless
 	k2 = n[0]*n[0] + n[1]*n[1] + n[2]*n[2];
 	if(k2 > 0) {
 	  m = sqrt(k2);
-	  
+	  k2 *= 4*M_PI*M_PI;
 	  sum1 += exp(-(k2 + ym*ym)/(4*alpha*alpha))/(k2 + ym*ym);
 	  sum2 += (erfc(alpha*m + ym/(2*alpha))*exp(ym*m) + erfc(alpha*m-ym/(2*alpha))*exp(-ym*m))/(2*m);
 	}
@@ -845,9 +855,15 @@ double yukawa_madelung(double ym) {
     }
   }
   
-  sum3 = - 2*alpha/(sqrt(M_PI))*exp(-ym*ym/(4*alpha*alpha)) +
-    ym*erfc(ym/(2*alpha)) +
-    4*M_PI/(ym*ym)*(expm1(ym*ym/(4*alpha*alpha)));
+  // The non-summation terms
+  sum3 = -2*alpha/sqrt(M_PI)*exp(-ym*ym/(4*alpha*alpha)) +
+    ym*erfc(ym/(2*alpha));
+  
+  // Explicitly the zero yukawa-mass case, limit via l'Hopital
+  if(ym > 0)
+    sum3 += 4*M_PI/(ym*ym) * expm1(ym*ym/(4*alpha*alpha));
+  else
+    sum3 += 4*M_PI/(4*alpha*alpha);
   
   return (4*M_PI*sum1 + sum2 + sum3);
 }
