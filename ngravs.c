@@ -30,6 +30,12 @@
  *
  */
 
+// Note that we define the modified force scale such that its
+// dead by the time you reach another boxlength.  This lets us
+// define zero lattice correction.  So, All.BoxSize = 10000
+// and YUKAWA_LAMBDA_INV = 1/250 gives e^(-20) at BoxSize/2
+#define YUKAWA_ALPHA 1
+#define YUKAWA_IMASS 2.5e-3
 
 /*! This function must be modified to point to your desired
  *  extensions to gravity.  It determines which force laws
@@ -50,7 +56,7 @@ void wire_grav_maps(void) {
   // code, like lattice correction tables.  So please make a unique identifier!
   //
 
-#if !defined NGRAVS_STOCK_TESTING && !defined NGRAVS_ACCUMULATOR_TESTING && !defined NGRAVS_GEN_TESTING
+#if !defined NGRAVS_STOCK_TESTING && !defined NGRAVS_ACCUMULATOR_TESTING && !defined NGRAVS_GEN_TESTING_UNIFORM
   /////////////////////// WIRING FOR RESEARCH RUNS ///////////////////
   //
   // Here is where you wire for your research runs.  If you wish to verify force accuracy,
@@ -178,8 +184,8 @@ void wire_grav_maps(void) {
 
   //////////////// END ACCUMULATOR TESTING WIRING ///////////////////////////
 
-#elif defined NGRAVS_GEN_TESTING
-  printf("ngravs: wired in generalized test mode\n");
+#elif defined NGRAVS_GEN_TESTING_UNIFORM
+  printf("ngravs: wired in uniform generalized force test mode\n");
   //////////////// BEGIN GENERALIZE FORCE TESTING WIRING ///////////////////////////
   //
   // This code is used to examine the force accuracy during the TreePM transition
@@ -188,65 +194,39 @@ void wire_grav_maps(void) {
   //
   ///////////////////////////////////////////////////////////////////////
 
-  NgravsNames[0][0] = "Yukawa";
-  NgravsNames[0][1] = "Yukawa";
-  NgravsNames[1][0] = "Yukawa";
-  NgravsNames[1][1] = "Yukawa";
+  for(i = 0; i < N_GRAVS; ++i) {
+    for(j = 0; j < N_GRAVS; ++j) {
 
-  AccelFxns[0][0] = yukawa;
-  AccelFxns[0][1] = yukawa;
-  AccelFxns[1][0] = yukawa;
-  AccelFxns[1][1] = yukawa;
+      NgravsNames[i][j] = "Yukawa";
+      AccelFxns[i][j] = yukawa;
 
-  // We set the Yukawa spline to plummer since
-  // the force is Newtonian at small r
-  AccelSplines[0][0] = plummer;
-  AccelSplines[0][1] = plummer; 
-  AccelSplines[1][0] = plummer;
-  AccelSplines[1][1] = plummer; 
+      // We set the Yukawa spline to plummer since
+      // the force is Newtonian at small r
+      // This being incorrect won't matter for force checking the TreePM 
+      // stuff, because the force correction uses the spline too.
+      AccelSplines[i][j] = plummer;
 
 #if defined PERIODIC
-  LatticeForce[0][0] = lattice_force_none; //ewald_force;
-  LatticePotential[0][0] = lattice_pot_none; // ewald_psi;
-  LatticeZero[0][0] = 0.0; //2.8372975;
-
-  LatticeForce[0][1] = LatticeForce[1][0] = lattice_force_none; //ewald_force;
-  LatticePotential[0][1] = LatticePotential[1][0] = lattice_pot_none; //ewald_psi;
-  LatticeZero[0][1] = LatticeZero[1][0] = 0.0; //2.8372975;
-
-  LatticeForce[1][1] = lattice_force_none;
-  LatticePotential[1][1] = lattice_pot_none;
-  LatticeZero[1][1] = 0.0;
+      // Computed from G. Salin and J.M. Caillol
+      // J. Chem. Phys., Vol 113, No. 23, 2000
+      LatticeForce[i][j] = yukawa_lattice_force;
+      LatticePotential[i][j] = yukawa_lattice_psi;
+      LatticeZero[i][j] = yukawa_madelung(YUKAWA_IMASS);
+      if(!ThisTask)
+	printf("ngravs: Yukawa force Madelung constant for [%d][%d] = %f\n", i, j, LatticeZero[i][j]);
 #endif
 
 #if defined OUTPUTPOTENTIAL || defined PMGRID
-  GreensFxns[0][0] = pgyukawa;
-  GreensFxns[0][1] = pgyukawa;
-  GreensFxns[1][0] = pgyukawa;
-  GreensFxns[1][1] = pgyukawa;
-
-  // We don't care about the potentials because we're
-  // not doing non-periodic or gastrophysics
-  PotentialFxns[0][0] = none;
-  PotentialSplines[0][0] = none;
-
-  PotentialSplines[0][1] = none;
-  PotentialFxns[0][1] = none;
-
-  PotentialSplines[1][0] = none;
-  PotentialFxns[1][0] = none;
-
-  PotentialSplines[1][1] = none;
-  PotentialFxns[1][1] = none;
-  
-  PotentialFxns[0][1] = none;
-  PotentialFxns[1][0] = none;
-  PotentialFxns[1][1] = none;
-  PotentialZero[0][0] = 0.0;
-  PotentialZero[0][1] = 0.0;
-  PotentialZero[1][0] = 0.0;
-  PotentialZero[1][1] = 0.0;
+      GreensFxns[i][j] = pgyukawa;
+      
+      // We don't care about the potentials because we're
+      // not doing non-periodic or gastrophysics
+      PotentialFxns[i][j] = none;
+      PotentialSplines[i][j] = none;
+      PotentialFxns[i][j] = none;
 #endif
+    }
+  }
 
 /*   NgravsNames[0][0] = "Newton"; */
 /*   NgravsNames[0][1] = "Newton"; */
@@ -390,20 +370,13 @@ double neg_pgdelta(double target, double source, double k2, double k, long N) {
   return -1.0;
 }
 
-// Note that we define the modified force scale such that its
-// dead by the time you reach another boxlength.  This lets us
-// define zero lattice correction.  So, All.BoxSize = 10000
-// and YUKAWA_LAMBDA_INV = 1/250 gives e^(-20) at BoxSize/2
-#define YUKAWA_ALPHA 1
-#define YUKAWA_LAMBDA_INV 2.5e-3
-
 /*! A pure Yukawa force
  *  Note, distances are at the scale of the box length 
  *  (and in whatever units that is set to)
  */
 double yukawa(double target, double source, double h, double r, long N) {
   
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_LAMBDA_INV) * (YUKAWA_LAMBDA_INV / r + 1.0/h);
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r + 1.0/h);
 }
 
 /*! A periodic yukawa k-space Greens function, normalized by the Newtonian interaction
@@ -412,7 +385,7 @@ double yukawa(double target, double source, double h, double r, long N) {
  */
 double pgyukawa(double target, double source, double k2, double k, long N) {
 
-  // NOTE: YUKAWA_LAMBDA_INV is in 1/BoxSize units
+  // NOTE: YUKAWA_IMASS is in 1/BoxSize units
   // For a BoxSize of 128 --> sqrt(128/2)
   return k2 / (k2 + 32*32);
 }
@@ -504,7 +477,7 @@ double neg_plummer_pot(double target, double source, double h, double r, long N)
  */
 double newyukawa(double target, double source, double h, double r, long N) {
 
-  return source / h * -YUKAWA_ALPHA * expm1f(-r*YUKAWA_LAMBDA_INV);
+  return source / h * -YUKAWA_ALPHA * expm1f(-r*YUKAWA_IMASS);
 }
 
 /*! This is the BAM-BAM interaction
@@ -774,7 +747,7 @@ double sourcebambaryon_pot(double target, double source, double h, double r, lon
 }
 
 /*! This function computes the potential correction term by means of Ewald
- *  summation.
+  *  summation.  Newtonian potential!
  */
 double ewald_psi(double x[3])
 {
@@ -782,6 +755,12 @@ double ewald_psi(double x[3])
   double r, sum1, sum2, hdotx;
   double dx[3];
   int i, n[3], h[3], h2;
+
+  // KC 11/16/15
+  // We will figure out the mappings between the variables used here
+  // and those in J. Chem. Phys., Vol. 113, No. 23, 2000, Eqn. (3.1)
+  // when *their* \alpha \to 0
+  //
 
   alpha = 2.0;
 
@@ -791,27 +770,155 @@ double ewald_psi(double x[3])
 	{
 	  for(i = 0; i < 3; i++)
 	    dx[i] = x[i] - n[i];
+	  
+	  // r (here) = r* (there)
+	  // \alpha (here) = \beta * (there)
 
 	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
 	  sum1 += erfc(alpha * r) / r;
+
+	  // Residual distinctions:
+	  // None!
 	}
 
   for(h[0] = -4, sum2 = 0; h[0] <= 4; h[0]++)
     for(h[1] = -4; h[1] <= 4; h[1]++)
       for(h[2] = -4; h[2] <= 4; h[2]++)
 	{
+	  
+	  // hdotx (here) = n \dot \r* (there)
+	  // other mappings the same!
 	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
 	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
 	  if(h2 > 0)
 	    sum2 += 1 / (M_PI * h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * cos(2 * M_PI * hdotx);
+
+	  // Residual distinctions:
+	  // None!
 	}
 
   r = sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
 
+  // Note the embedded neutralizing background
+  // The mapping holds, with no residual factors! 
   psi = M_PI / (alpha * alpha) - sum1 - sum2 + 1 / r;
 
   return psi;
 }
+
+/*! This function computes the Madelung constant for the yukawa potential
+ * which depends on the box length interestingly...
+ * We follow Eqn (2.19) of G. Salin and Caillol (op. cit)
+ *
+ * Note that we use the values de-dedimensionalized in the same way
+ * as the other yukawa lattice functions.
+ *
+ */
+double yukawa_madelung(double ym) {
+  
+  double sum1, sum2, sum3;
+  double k2, m;
+  double alpha;
+  int n[3];
+
+  // KC 11/16/15
+  // We again adopt the same notation as that used in Gadget-2, so their beta
+  // is our alpha, etc (see comments above)
+  alpha = 5.64;
+
+  // Going out to the same distance seems like a good idea, no?
+  // Notice that reducing all the quantities results in an over factor of (1/L)
+  // This factor is NOT present in the originally specified number, so Gadget-2
+  // must be putting it back in somewhere.  So we elide it.
+  for(n[0] = -5, sum1 = 0, sum2 = 0; n[0] <= 5; n[0]++) {
+    for(n[1] = -5; n[1] <= 5; n[1]++) {
+      for(n[2] = -5; n[2] <= 5; n[2]++)	{
+	// Here we use n for both the k sum and the n sum because they are both dimensionless
+	k2 = n[0]*n[0] + n[1]*n[1] + n[2]*n[2];
+	if(k2 > 0) {
+	  m = sqrt(k2);
+	  
+	  sum1 += exp(-(k2 + ym*ym)/(4*alpha*alpha))/(k2 + ym*ym);
+	  sum2 += (erfc(alpha*m + ym/(2*alpha))*exp(ym*m) + erfc(alpha*m-ym/(2*alpha))*exp(-ym*m))/(2*m);
+	}
+      }
+    }
+  }
+  
+  sum3 = - 2*alpha/(sqrt(M_PI))*exp(-ym*ym/(4*alpha*alpha)) +
+    ym*erfc(ym/(2*alpha)) +
+    4*M_PI/(ym*ym)*(expm1(ym*ym/(4*alpha*alpha)));
+  
+  return (4*M_PI*sum1 + sum2 + sum3);
+}
+
+/*! This function computes the potential correction term by means of Ewald
+  *  summation, adjusted for Yukawa! Thanks Salin and Caillol!
+ */
+double yukawa_lattice_psi(double x[3])
+{
+  double alpha, psi;
+  double r, sum1, sum2, hdotx;
+  double dx[3];
+  int i, n[3], h[3], h2;
+
+  // KC 11/16/15
+  // We will figure out the mappings between the variables used here
+  // and those in J. Chem. Phys., Vol. 113, No. 23, 2000, Eqn. (3.1)
+  // when *their* \alpha \to 0
+  //
+  // NOTE: YUKAWA_IMASS is taken to be de-dimensionalized (reduced) wrt All.BoxSize
+  
+  // KC 11/16/15
+  // Notice we use Salin's ideal transition of 5.64 with summations out to |n| = 5
+  // So we *really* overcompute it!
+  alpha = 5.64;
+
+  for(n[0] = -5, sum1 = 0; n[0] <= 5; n[0]++)
+    for(n[1] = -5; n[1] <= 5; n[1]++)
+      for(n[2] = -5; n[2] <= 5; n[2]++)
+	{
+	  for(i = 0; i < 3; i++)
+	    dx[i] = x[i] - n[i];
+	  
+	  // r (here) = r* (there)
+	  // \alpha (here) = \beta * (there)
+
+	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+	  sum1 += (erfc(alpha * r + YUKAWA_IMASS/(2*alpha)) * exp(YUKAWA_IMASS * r)) / (2*r);
+	  sum1 += (erfc(alpha * r - YUKAWA_IMASS/(2*alpha)) * exp(-YUKAWA_IMASS * r)) / (2*r);
+
+	  // Residual distinctions:
+	  // None!
+	}
+
+  for(h[0] = -5, sum2 = 0; h[0] <= 5; h[0]++)
+    for(h[1] = -5; h[1] <= 5; h[1]++)
+      for(h[2] = -5; h[2] <= 5; h[2]++)
+	{
+	  
+	  // hdotx (here) = n \dot \r* (there)
+	  // other mappings the same!
+	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
+	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
+	  if(h2 > 0)
+	    sum2 += 1 / (M_PI * h2 + YUKAWA_IMASS*YUKAWA_IMASS*4*M_PI) * exp(-M_PI * M_PI * h2 / (alpha * alpha) + YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha)) * cos(2 * M_PI * hdotx);
+
+	  // Residual distinctions:
+	  // None!
+	}
+
+  r = sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
+
+  // Note the embedded neutralizing background
+  // The mapping holds, with no residual factors! Eqn. (2.18)
+  // Note inverted sign!
+  psi = M_PI / (alpha * alpha) - sum1 - sum2 + exp(-YUKAWA_IMASS*r)/r;
+
+  return psi;
+}
+
+// Now we have to take the derivative of the above function...
 
 double lattice_pot_none(double x[3]) {
 
@@ -845,6 +952,13 @@ void ewald_force(int iii, int jjj, int kkk, double x[3], double force[3])
 
   r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
 
+  // KC 11/16/15
+  // Here we add in the newtonian force, with the displacement vector
+  // normalization included.  This makes me wonder if I should be including this factor in my
+  // short-range tabulations.  It would allow me to make the spline functions and acceleration
+  // functions interchangable again, and to remove an additional division in non-splined
+  // forces, which are both nice features....
+  // 
   for(i = 0; i < 3; i++)
     force[i] += x[i] / (r2 * sqrt(r2));
 
@@ -886,6 +1000,95 @@ void ewald_force(int iii, int jjj, int kkk, double x[3], double force[3])
 	}
 }
 
+/*! This function computes the force correction term (difference between full
+ *  force of infinite lattice and nearest image) by Ewald summation.
+ */
+void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3])
+{
+  double alpha, r2;
+  double r, val, hdotx, dx[3];
+  int i, h[3], n[3], h2;
+
+  // KC 11/16/15
+  // Note our use of Salin's optimal 'alpha', and our excessive momentum-space
+  alpha = 5.64;
+
+  for(i = 0; i < 3; i++)
+    force[i] = 0;
+
+  if(iii == 0 && jjj == 0 && kkk == 0)
+    return;
+
+  r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
+
+  // KC 11/16/15
+  // Here we add in the original force, with the displacement vector
+  // normalization included.  This makes me wonder if I should be including this factor in my
+  // short-range tabulations.  It would allow me to make the spline functions and acceleration
+  // functions interchangable again, and to remove an additional division in non-splined
+  // forces, which are both nice features....
+  // 
+  // Optimize later (this is only used for preliminary tabulations)
+  for(i = 0; i < 3; i++)
+    force[i] += yukawa(1.0, 1.0, r2, sqrt(r2), 1) / sqrt(r2); //x[i] / (r2 * sqrt(r2));
+
+  // KC 12/4/14
+  // Looks like this takes the first four images out in position space in each direction (so 
+  // bracketing by 8 overall)
+  for(n[0] = -5; n[0] <= 5; n[0]++)
+    for(n[1] = -5; n[1] <= 5; n[1]++)
+      for(n[2] = -5; n[2] <= 5; n[2]++)
+	{
+	  for(i = 0; i < 3; i++)
+	    dx[i] = x[i] - n[i];
+
+	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+
+	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
+	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
+	  val = 0.5*( exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
+		      exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha)));
+	  
+	  for(i = 0; i < 3; i++)
+	    force[i] -= dx[i] / (r * r * r) * val;
+
+	  val = 0.5*YUKAWA_IMASS*(-exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
+				  exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha))) +
+	    2*alpha*exp(-alpha*alpha*r*r-YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha))/sqrt(M_PI);
+
+	  // KC 11/16/15
+	  // Note that these terms enter with one less radial power in the denominator
+	  for(i = 0; i < 3; i++)
+	    force[i] -= dx[i] / (r * r) * val;
+	}
+
+  // KC 12/4/14
+  // Looks like this takes the first four images in momentum space in each diretion (again
+  // bracketing by 8 overall)
+  //
+  // KC 11/16/15
+  // Take careful note of the relative signs!!
+  // If you take the negative grad_r, then the signs are the same!
+  for(h[0] = -5; h[0] <= 5; h[0]++)
+    for(h[1] = -5; h[1] <= 5; h[1]++)
+      for(h[2] = -5; h[2] <= 5; h[2]++)
+	{
+	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
+	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
+
+	  if(h2 > 0)
+	    {
+	      //	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
+	      val = 2*M_PI*exp(-(4*M_PI*M_PI*h2 - YUKAWA_IMASS*YUKAWA_IMASS)/(4*alpha*alpha))*sin(2*M_PI*hdotx) / 
+		(M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS/(4*M_PI));
+	      
+	      // KC 11/16/15
+	      // The h[i] here is the n\cos\theta that you get on radial differentiation
+	      for(i = 0; i < 3; i++)
+		force[i] -= h[i] * val;
+	    }
+	}
+}
 
 ///////////////// END GENERALIZED FORCE AND GREENS FUNCTIONS ////////////
 //

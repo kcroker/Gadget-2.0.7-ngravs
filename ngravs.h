@@ -55,6 +55,9 @@ double neg_plummer_pot(double target, double source, double h, double r, long N)
 // Lattice functions
 void lattice_force_none(int iii, int jjj, int kkk, double x[3], double force[3]);
 double lattice_pot_none(double x[3]);
+void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3]);
+double yukawa_lattice_psi(double x[3]);
+double yukawa_madelung(double ym);
 
 // Functions required for convolution
 int gadgetToFourier(int i, struct ngravsInterpolant *s);
