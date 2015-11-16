@@ -1046,7 +1046,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   // 
   // Optimize later (this is only used for preliminary tabulations)
   for(i = 0; i < 3; i++)
-    force[i] += yukawa(1.0, 1.0, r2, sqrt(r2), 1) / sqrt(r2); //x[i] / (r2 * sqrt(r2));
+    force[i] += yukawa(1.0, 1.0, r2, sqrt(r2), 1) * (x[i] / sqrt(r2));
 
   // KC 12/4/14
   // Looks like this takes the first four images out in position space in each direction (so 
