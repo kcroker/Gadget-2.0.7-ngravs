@@ -63,17 +63,19 @@ void init(void)
   // KC 10/25/15
   // Now that All.ForceSoftening is set, we can do some sanity.
   // Verify that the TreePM smoothing distance is not inside the tree softening distance!
-  for(i = 0; i < 6; ++i) {
+  if(!ThisTask) {
+    for(i = 0; i < 6; ++i) {
     
-    // NTAB/asmthfac = NTAB / (0.5 / All.Asmth[0] * (NTAB/3))
-    if(All.ForceSoftening[i] > 2*3*All.Asmth[0]) {
+      // NTAB/asmthfac = NTAB / (0.5 / All.Asmth[0] * (NTAB/3))
+      if(All.ForceSoftening[i] > 2*3*All.Asmth[0]) {
       
-      printf("ngravs: TreePM transition scale %f sits within the spline softened force radius %f for particle type %d.  Computation will be wrong.",
-	     2*3*All.Asmth[0], All.ForceSoftening[i], i);
+	printf("ngravs: TreePM transition scale %f sits within the spline softened force radius %f for particle type %d.  Computation will be wrong.",
+	       2*3*All.Asmth[0], All.ForceSoftening[i], i);
+      }
+      else
+	printf("ngravs: TreePM transition scale %f, softened force radius %f for particle type %d. Ok.\n", 
+	       2*3*All.Asmth[0], All.ForceSoftening[i], i);
     }
-    else
-      printf("ngravs: TreePM transition scale %f, softened force radius %f for particle type %d. Ok.\n", 
-	     2*3*All.Asmth[0], All.ForceSoftening[i], i);
   }
 #endif
 

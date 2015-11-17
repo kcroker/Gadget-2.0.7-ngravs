@@ -30,12 +30,14 @@
  *
  */
 
-// Note that we define the modified force scale such that its
-// dead by the time you reach another boxlength.  This lets us
-// define zero lattice correction.  So, All.BoxSize = 10000
-// and YUKAWA_LAMBDA_INV = 1/250 gives e^(-20) at BoxSize/2
 #define YUKAWA_ALPHA 1
-#define YUKAWA_IMASS 2.5e-3
+
+#ifdef PERIODIC
+#define YUKAWA_IMASS (NGRAVS_EN*0.25)  // In units of NGRAVS_EN, 1/4 of the simulation box
+#else
+#define YUKAWA_IMASS (1e2/All.BoxLength) // Otherwise, do it in terms of normal units
+#endif
+
 
 /*! This function must be modified to point to your desired
  *  extensions to gravity.  It determines which force laws
@@ -44,7 +46,7 @@
 void wire_grav_maps(void) {
 
   int i,j;
-  char fname[128];
+  char *fname;
 
   // KC 8/11/14 Wiring
   //
@@ -53,8 +55,10 @@ void wire_grav_maps(void) {
   //       InteractionFunctions[TARGET][SOURCE]
   //       (i.e. InteractionFunctions[PASSIVE][ACTIVE])
   //
-  // NOTE: NgravsNames[][] is used to index things used by the simulation
+  // VERY IMPORTANT: NgravsNames[][] is used to index things used by the simulation
   // code, like lattice correction tables.  So please make a unique identifier!
+  // (It will also be used eventually to save memory and startup-time by not 
+  // computing redundant tables.)
   //
 
 #if !defined NGRAVS_STOCK_TESTING && !defined NGRAVS_ACCUMULATOR_TESTING && !defined NGRAVS_GEN_TESTING_UNIFORM
@@ -195,13 +199,16 @@ void wire_grav_maps(void) {
   //
   ///////////////////////////////////////////////////////////////////////
 
-  // Create a unique name for this value of the field mass
-  snprintf(fname, 128, "Yukawa_%f", YUKAWA_IMASS);
-  printf("ngravs: %s\n", fname);
-
   for(i = 0; i < N_GRAVS; ++i) {
     for(j = 0; j < N_GRAVS; ++j) {
-
+      
+      // Allocate a new one each time, 
+      // because that's what we'd have to be doing anyway.
+      // This is not a leak because we need these handles throughout the
+      // entire program run.
+      fname = (char *)malloc(128);
+      snprintf(fname, 128, "Yukawa_%f", YUKAWA_IMASS);
+ 
       NgravsNames[i][j] = fname;
       AccelFxns[i][j] = yukawa;
 
@@ -373,26 +380,6 @@ double pgdelta(double target, double source, double k2, double k, long N) {
 double neg_pgdelta(double target, double source, double k2, double k, long N) {
 
   return -1.0;
-}
-
-/*! A pure Yukawa force
- *  Note, distances are at the scale of the box length 
- *  (and in whatever units that is set to)
- */
-double yukawa(double target, double source, double h, double r, long N) {
-  
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r + 1.0/h);
-}
-
-/*! A periodic yukawa k-space Greens function, normalized by the Newtonian interaction
- *  NOTE: k is supplied dimensionlessly in terms of PMGRID so k \in [-PMGRID/2, PMGRID/2]
- *        so the Yukawa mass should be 
- */
-double pgyukawa(double target, double source, double k2, double k, long N) {
-
-  // NOTE: YUKAWA_IMASS is in 1/BoxSize units
-  // For a BoxSize of 128 --> sqrt(128/2)
-  return k2 / (k2 + YUKAWA_IMASS*YUKAWA_IMASS);
 }
 
 /*! This is the Plummer spline used by GADGET-2
@@ -811,6 +798,38 @@ double ewald_psi(double x[3])
   return psi;
 }
 
+/* Essential notes on units:
+ * ----------------------------------
+ * Units to k, k2 in Greens' Functions: k \in [-PMGRID/2, PMGRID/2] (mesh cells)
+ * Units to r, r2 in Spline and Accel Functions: r \in [0, BoxLength] or unconstrained (given length unit)
+ * Units to x in Lattice functions: x \in [-NGRAVS_EN/2, NGRAVS_EN/2] (interpolation table units)
+ *
+ */
+
+/*! A pure Yukawa force
+ *
+ * Radii take values in [0, BoxLength] for periodic, unconstrained otherwise.
+ * If we are in PERIODIC mode, so that the tables do not become sensitive to
+ * the BoxLength as given in the configuration files, YUKAWA_IMASS is in units of EN.
+ */
+double yukawa(double target, double source, double h, double r, long N) {
+  
+#if defined PERIODIC
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS/(NGRAVS_EN*All.BoxSize)) * (YUKAWA_IMASS/(NGRAVS_EN*All.BoxSize*r) + 1.0/h);
+#else
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r + 1.0/h);
+#endif
+}
+
+/*! A periodic yukawa k-space Greens function, normalized by the Newtonian interaction
+ *  NOTE: k is supplied dimensionlessly in terms of PMGRID so k \in [-PMGRID/2, PMGRID/2]
+ */
+double pgyukawa(double target, double source, double k2, double k, long N) {
+
+  // This function is only called in periodic mode, so it to PMGRID units
+  return k2 / (k2 + (PMGRID*PMGRID)*(YUKAWA_IMASS*YUKAWA_IMASS)/(NGRAVS_EN*NGRAVS_EN));
+}
+
 /*! This function computes the Madelung constant for the yukawa potential
  * which depends on the box length interestingly...
  * We follow Eqn (2.19) of G. Salin and Caillol (op. cit)
@@ -883,7 +902,8 @@ double yukawa_lattice_psi(double x[3])
   // and those in J. Chem. Phys., Vol. 113, No. 23, 2000, Eqn. (3.1)
   // when *their* \alpha \to 0
   //
-  // NOTE: YUKAWA_IMASS is taken to be de-dimensionalized (reduced) wrt All.BoxSize
+  // NOTE: YUKAWA_IMASS is in terms of 1/NGRAVS_EN since r here is in units of NGRAVS_EN
+  //
   
   // KC 11/16/15
   // Notice we use Salin's ideal transition of 5.64 with summations out to |n| = 5
@@ -918,7 +938,7 @@ double yukawa_lattice_psi(double x[3])
 	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
 	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
 	  if(h2 > 0)
-	    sum2 += 1 / (M_PI * h2 + YUKAWA_IMASS*YUKAWA_IMASS*4*M_PI) * exp(-M_PI * M_PI * h2 / (alpha * alpha) + YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha)) * cos(2 * M_PI * hdotx);
+	    sum2 += 1 / (M_PI * h2 + YUKAWA_IMASS*YUKAWA_IMASS/(4*M_PI)) * exp(-M_PI * M_PI * h2 / (alpha * alpha) - YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha)) * cos(2 * M_PI * hdotx);
 
 	  // Residual distinctions:
 	  // None!
@@ -935,6 +955,106 @@ double yukawa_lattice_psi(double x[3])
 }
 
 // Now we have to take the derivative of the above function...
+/*! This function computes the force correction term (difference between full
+ *  force of infinite lattice and nearest image) by Ewald summation.
+ */
+void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3])
+{
+  double alpha, r2;
+  double r, val, hdotx, dx[3];
+  int i, h[3], n[3], h2;
+
+  // KC 11/16/15
+  // Note our use of Salin's optimal 'alpha', and our excessive momentum-space
+  alpha = 5.64;
+
+  for(i = 0; i < 3; i++)
+    force[i] = 0;
+
+  if(iii == 0 && jjj == 0 && kkk == 0)
+    return;
+
+  r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
+  r = sqrt(r2);
+
+  // KC 11/16/15
+  // Here we add in the original force, with the displacement vector
+  // normalization included.  This makes me wonder if I should be including this factor in my
+  // short-range tabulations.  It would allow me to make the spline functions and acceleration
+  // functions interchangable again, and to remove an additional division in non-splined
+  // forces, which are both nice features....
+  // 
+  // Optimize later (this is only used for preliminary tabulations)
+  //
+  // Note that r and r2 are in units of NGRAVS_EN, so we don't use the usual Yukawa force
+  // function which assumes things are in internal units...
+  //
+  // (Because YUKAWA_IMASS is defined in NGRAVS_EN units so that tabulations do not need to be repeated
+  //  for different box lengths)
+  //
+  
+  for(i = 0; i < 3; i++)
+    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i]; 
+
+  //yukawa(1.0, 1.0, r2, sqrt(r2), 1) * (x[i] / sqrt(r2));
+
+  // KC 12/4/14
+  // Looks like this takes the first four images out in position space in each direction (so 
+  // bracketing by 8 overall)
+  for(n[0] = -5; n[0] <= 5; n[0]++)
+    for(n[1] = -5; n[1] <= 5; n[1]++)
+      for(n[2] = -5; n[2] <= 5; n[2]++)
+	{
+	  for(i = 0; i < 3; i++)
+	    dx[i] = x[i] - n[i];
+
+	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+
+	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
+	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
+	  val = 0.5*( exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
+		      exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha)));
+	  
+	  for(i = 0; i < 3; i++)
+	    force[i] -= dx[i] / (r * r * r) * val;
+
+	  val = 0.5*YUKAWA_IMASS*(-exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
+				  exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha))) +
+	    2*alpha*exp(-alpha*alpha*r*r-YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha))/sqrt(M_PI);
+
+	  // KC 11/16/15
+	  // Note that these terms enter with one less radial power in the denominator
+	  for(i = 0; i < 3; i++)
+	    force[i] -= dx[i] / (r * r) * val;
+	}
+
+  // KC 12/4/14
+  // Looks like this takes the first four images in momentum space in each diretion (again
+  // bracketing by 8 overall)
+  //
+  // KC 11/16/15
+  // Take careful note of the relative signs!!
+  // If you take the negative grad_r, then the signs are the same!
+  for(h[0] = -5; h[0] <= 5; h[0]++)
+    for(h[1] = -5; h[1] <= 5; h[1]++)
+      for(h[2] = -5; h[2] <= 5; h[2]++)
+	{
+	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
+	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
+
+	  if(h2 > 0)
+	    {
+	      //	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
+	      val = 2*M_PI*exp(-(4*M_PI*M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS)/(4*alpha*alpha))*sin(2*M_PI*hdotx) / 
+		(M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS/(4*M_PI));
+	      
+	      // KC 11/16/15
+	      // The h[i] here is the n\cos\theta that you get on radial differentiation
+	      for(i = 0; i < 3; i++)
+		force[i] -= h[i] * val;
+	    }
+	}
+}
 
 double lattice_pot_none(double x[3]) {
 
@@ -951,6 +1071,8 @@ void lattice_force_none(int iii, int jjj, int kkk, double x[3], double force[3])
 
 /*! This function computes the force correction term (difference between full
  *  force of infinite lattice and nearest image) by Ewald summation.
+ *
+ *  Note that the r (x) values used here are dimensionless....
  */
 void ewald_force(int iii, int jjj, int kkk, double x[3], double force[3])
 {
@@ -1016,95 +1138,7 @@ void ewald_force(int iii, int jjj, int kkk, double x[3], double force[3])
 	}
 }
 
-/*! This function computes the force correction term (difference between full
- *  force of infinite lattice and nearest image) by Ewald summation.
- */
-void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3])
-{
-  double alpha, r2;
-  double r, val, hdotx, dx[3];
-  int i, h[3], n[3], h2;
 
-  // KC 11/16/15
-  // Note our use of Salin's optimal 'alpha', and our excessive momentum-space
-  alpha = 5.64;
-
-  for(i = 0; i < 3; i++)
-    force[i] = 0;
-
-  if(iii == 0 && jjj == 0 && kkk == 0)
-    return;
-
-  r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
-
-  // KC 11/16/15
-  // Here we add in the original force, with the displacement vector
-  // normalization included.  This makes me wonder if I should be including this factor in my
-  // short-range tabulations.  It would allow me to make the spline functions and acceleration
-  // functions interchangable again, and to remove an additional division in non-splined
-  // forces, which are both nice features....
-  // 
-  // Optimize later (this is only used for preliminary tabulations)
-  for(i = 0; i < 3; i++)
-    force[i] += yukawa(1.0, 1.0, r2, sqrt(r2), 1) * (x[i] / sqrt(r2));
-
-  // KC 12/4/14
-  // Looks like this takes the first four images out in position space in each direction (so 
-  // bracketing by 8 overall)
-  for(n[0] = -5; n[0] <= 5; n[0]++)
-    for(n[1] = -5; n[1] <= 5; n[1]++)
-      for(n[2] = -5; n[2] <= 5; n[2]++)
-	{
-	  for(i = 0; i < 3; i++)
-	    dx[i] = x[i] - n[i];
-
-	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
-
-	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
-	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
-	  val = 0.5*( exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
-		      exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha)));
-	  
-	  for(i = 0; i < 3; i++)
-	    force[i] -= dx[i] / (r * r * r) * val;
-
-	  val = 0.5*YUKAWA_IMASS*(-exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
-				  exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha))) +
-	    2*alpha*exp(-alpha*alpha*r*r-YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha))/sqrt(M_PI);
-
-	  // KC 11/16/15
-	  // Note that these terms enter with one less radial power in the denominator
-	  for(i = 0; i < 3; i++)
-	    force[i] -= dx[i] / (r * r) * val;
-	}
-
-  // KC 12/4/14
-  // Looks like this takes the first four images in momentum space in each diretion (again
-  // bracketing by 8 overall)
-  //
-  // KC 11/16/15
-  // Take careful note of the relative signs!!
-  // If you take the negative grad_r, then the signs are the same!
-  for(h[0] = -5; h[0] <= 5; h[0]++)
-    for(h[1] = -5; h[1] <= 5; h[1]++)
-      for(h[2] = -5; h[2] <= 5; h[2]++)
-	{
-	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
-	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
-
-	  if(h2 > 0)
-	    {
-	      //	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
-	      val = 2*M_PI*exp(-(4*M_PI*M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS)/(4*alpha*alpha))*sin(2*M_PI*hdotx) / 
-		(M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS/(4*M_PI));
-	      
-	      // KC 11/16/15
-	      // The h[i] here is the n\cos\theta that you get on radial differentiation
-	      for(i = 0; i < 3; i++)
-		force[i] -= h[i] * val;
-	    }
-	}
-}
 
 ///////////////// END GENERALIZED FORCE AND GREENS FUNCTIONS ////////////
 //
@@ -1123,12 +1157,12 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 // Some default values here
 // How much to oversample by
 // WHY: This determines the magnitude of the error term: 
-#define OL 20
+//#define OL 20
 
 // How much further (by this multiplicative factor) to go in x-space 
 // than the required 3-\epsilon
 // WHY: This (essentially) determines how deep into k-space to probe the function
-#define LEN 4
+//#define LEN 4
 
 // This is then the required number of samples.
 // #define NGRAVS_TPM_N (12*NTAB*OL*LEN-6*OL*LEN+2)
@@ -1162,6 +1196,13 @@ FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z) {
   return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
 }
 
+//
+// Sigh.  Fourier routines need to be reconsidered from the point of view of 
+// units being in MESH CELLS, beacuse that is what the normKGreen works in, 
+// and if you look at pm_periodic, what k2 takes values in :/
+//
+// You didn't see this problem with Newton because normKGreen = 1.
+//
 int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI) {
   
   fftw_complex *in, *out;
@@ -1201,7 +1242,7 @@ int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z,
 
   // 2) Xform
   fftw_one(s->plan, in, out);
-  norm = 2.0*M_PI * s->ntab * 6.0 * OL/(3.0 * s->ngravs_tpm_n);
+  norm = 2.0*M_PI * s->ntab * 6.0 * s->ol/(3.0 * s->ngravs_tpm_n);
 
   /* // Debug */
   /* // Make sure the transform is behaving reasonably */
@@ -1259,6 +1300,8 @@ struct ngravsInterpolant *ngravsConvolutionInit(int ntab, int len, int ol) {
   s->ol = ol;
   s->ngravs_tpm_n = 12*ntab*ol*len-6*ol*len+2;
   s->plan = fftw_create_plan(s->ngravs_tpm_n, FFTW_BACKWARD, FFTW_ESTIMATE);
+
+  printf("ngravs: max_k = %.15e\n", jTok(s->ngravs_tpm_n/2, 0.5, s));
 
   return s;
 }

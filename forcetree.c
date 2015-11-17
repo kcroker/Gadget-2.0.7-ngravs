@@ -41,14 +41,14 @@ static int first_flag = 0;
 /*! Macro that maps a distance to the nearest periodic neighbour */
 #define NEAREST(x) (((x)>boxhalf)?((x)-boxsize):(((x)<-boxhalf)?((x)+boxsize):(x)))
 /*! Size of 3D lock-up table for Lattice sum correction force */
-#define EN  64
+
 /*! 3D lock-up table for Lattice sum correction to force and potential. Only one
  *  octant is stored, the rest constructed by using the symmetry
  */
-static FLOAT fcorrx[N_GRAVS][N_GRAVS][EN + 1][EN + 1][EN + 1];
-static FLOAT fcorry[N_GRAVS][N_GRAVS][EN + 1][EN + 1][EN + 1];
-static FLOAT fcorrz[N_GRAVS][N_GRAVS][EN + 1][EN + 1][EN + 1];
-static FLOAT potcorr[N_GRAVS][N_GRAVS][EN + 1][EN + 1][EN + 1];
+static FLOAT fcorrx[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
+static FLOAT fcorry[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
+static FLOAT fcorrz[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
+static FLOAT potcorr[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
 static double fac_intp;
 #endif
 
@@ -2292,18 +2292,18 @@ int force_treeevaluate_lattice_correction(int target, int mode, double pos_x, do
 
 	  u = dx[n] * fac_intp;
 	  i = (int) u;
-	  if(i >= EN)
-	    i = EN - 1;
+	  if(i >= NGRAVS_EN)
+	    i = NGRAVS_EN - 1;
 	  u -= i;
 	  v = dy[n] * fac_intp;
 	  j = (int) v;
-	  if(j >= EN)
-	    j = EN - 1;
+	  if(j >= NGRAVS_EN)
+	    j = NGRAVS_EN - 1;
 	  v -= j;
 	  w = dz[n] * fac_intp;
 	  k = (int) w;
-	  if(k >= EN)
-	    k = EN - 1;
+	  if(k >= NGRAVS_EN)
+	    k = NGRAVS_EN - 1;
 	  w -= k;
 
 	  /* compute factors for trilinear interpolation */
@@ -2376,18 +2376,18 @@ int force_treeevaluate_lattice_correction(int target, int mode, double pos_x, do
 
 	u = dx[sG] * fac_intp;
 	i = (int) u;
-	if(i >= EN)
-	  i = EN - 1;
+	if(i >= NGRAVS_EN)
+	  i = NGRAVS_EN - 1;
 	u -= i;
 	v = dy[sG] * fac_intp;
 	j = (int) v;
-	if(j >= EN)
-	  j = EN - 1;
+	if(j >= NGRAVS_EN)
+	  j = NGRAVS_EN - 1;
 	v -= j;
 	w = dz[sG] * fac_intp;
 	k = (int) w;
-	if(k >= EN)
-	  k = EN - 1;
+	if(k >= NGRAVS_EN)
+	  k = NGRAVS_EN - 1;
 	w -= k;
 
 	/* compute factors for trilinear interpolation */
@@ -3181,6 +3181,10 @@ void force_treeallocate(int maxnodes, int maxpart)
   int nA, nB;
   double r;
   FLOAT Z;
+  
+  char buf[512];
+  FILE *fhand = NULL;
+  int skipWrite = 0;
 #endif
 
   MaxNodes = maxnodes;
@@ -3232,11 +3236,37 @@ void force_treeallocate(int maxnodes, int maxpart)
       // this may take a bit of time (though it only needs to be performed once)
 #ifdef PMGRID
 
-      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 4, 20);
+      // KC 11/17/15
+      // PPP
+      // This computation should really be distributed, and written out to a file just like the
+      // lattice computation...
+      //
+      // If the computation is working well, in general, then we can do this.  It will just mean distributing
+      // the Fourier transform.  
+      //
+      // Do not confuse magnitude with precision.
+      // single-precision: 2^{-126} before becoming zero.  The FourierIntegrand contans e^(-(k asmth/2)^2 ), so
+      //                   -126 ln 2 = -(k asmth/2)^2
+      //                   sqrt(126 ln 2) = k asmth / 2
+      //                   k = 2 sqrt (126 ln 2) / asmth
+      //
+      // But asmth = 2 \pi ASMTH (1.25) / PMGRID, so
+      //                   k < 2 sqrt (126 ln 2) * PMGRID / (2 \pi ASMTH)
+      //                     =~ 609.2 (PMGRID = 256)
+      // 
+      // But the proffered k \in [-PMGRID/2, PMGRID/2], so the computer can accurately and precisely track
+      // all possible values.  Interesting.
+      //
+      // double-precision: 126 -> 2xx 
+      //
+      // Anything above this is oversampling, because the integrand MUST be zero as far as the machine is concerned
+      // (because the normalized greens is bounded above by 1).
+      //
+      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 1, 1);
       Z = 0.5; 
-      
-      printf("ngravs: (Task %d) tabulating shortrange correction factors for dimensionless transition scale %f...\n", 
-	     ThisTask, Z);
+
+      if(!ThisTask)
+	printf("ngravs: tabulating shortrange correction factors for dimensionless transition scale %f...\n", Z);
 
       // Sources
       for(nA = 0; nA < N_GRAVS; ++nA) {
@@ -3244,6 +3274,8 @@ void force_treeallocate(int maxnodes, int maxpart)
 	// Receivers
 	for(nB = 0; nB < N_GRAVS; ++nB) {
 	  
+	  // KC 11/17/15
+	  // So horribly inefficient.  These should be pointers to the table to use
 	  i = performConvolution(ngravsPeriodicTable, 
 				 GreensFxns[nB][nA], 
 				 Z,
@@ -3254,7 +3286,35 @@ void force_treeallocate(int maxnodes, int maxpart)
 	    printf("ngravs: could not allocate memory for FFT on task %d.  Reduce OL and/or LEN and recompile.", ThisTask);
 	    endrun(1047);
 	  }
-	  
+
+#if defined NGRAVS_TREEPM_XITION_CHECK
+	    if(!ThisTask) {
+
+	      // Don't write out the same data twice
+	      // (but always write it out once per run)
+	      for(i = 0; i < nA * nB; ++i) {
+	      	if(!strncmp(*(&NgravsNames[0][0] + i), NgravsNames[nB][nA], 100)) {
+	      	  skipWrite = 1;
+	      	  break;
+	      	}
+	      }
+	      
+	      if(!skipWrite) {
+		printf("ngravs: %s\n", NgravsNames[nB][nA]);
+		snprintf(buf, 512, "%s/ngravs_tpm_%s_l%d_ol%d.txt", 
+			 All.OutputDir, 
+			 NgravsNames[nB][nA], 
+			 ngravsPeriodicTable->len,
+			 ngravsPeriodicTable->ol);
+		fhand = fopen(buf, "w+t");
+	      
+		if(!fhand) {
+		  printf("ngravs: could not open %s for writing!\n", buf);
+		  endrun(1014);
+		}
+	      }
+	    }
+#endif	  
 	  // pot and force arrays don't yet contain the appropriate correction factors.  
 	  // Here we make the adjustments
 	  for(i = 0; i < NTAB; ++i) {
@@ -3262,6 +3322,13 @@ void force_treeallocate(int maxnodes, int maxpart)
 	    // Stock, forcetree.c:2679
 	    u = 3.0 / NTAB * (i + 0.5);
 
+#if defined NGRAVS_TREEPM_XITION_CHECK
+	    if(!skipWrite && !ThisTask)
+	      fprintf(fhand, "%.15e %.15e %.15e\n", 
+		      u,
+		      shortrange_fourier_pot[nB][nA][i],
+		      shortrange_fourier_force[nB][nA][i]);
+#endif
 	    // Divide by the appropriate values of u to save computation time in actual use
 	    shortrange_fourier_force[nB][nA][i] /= u*u;
 	    shortrange_fourier_pot[nB][nA][i] /= u;
@@ -3269,13 +3336,25 @@ void force_treeallocate(int maxnodes, int maxpart)
 	    // Precompute buddy!
 	    shortrange_fourier_force[nB][nA][i] -= shortrange_fourier_pot[nB][nA][i];
 	  }
+	
+#if defined NGRAVS_TREEPM_XITION_CHECK
+	  skipWrite = 0;
+	  if(fhand) {
+	    fclose(fhand);
+	    fhand = NULL;
+	  }
+#endif
 	}
       }
 
       // Cleanup
       ngravsConvolutionFree(ngravsPeriodicTable);
 
-      printf("ngravs: (Task %d) Finished short-range correction tabulation with FFT\n", ThisTask);
+      if(!ThisTask)
+	printf("ngravs: Finished short-range correction tabulation with FFT\n");
+      
+      // Wait for the other guys to catchup
+      MPI_Barrier(MPI_COMM_WORLD);
 #endif
     }
 }
@@ -3500,9 +3579,9 @@ void lattice_init(void)
       // KC 12/5/14
       // 
 #ifdef DOUBLEPRECISION
-      sprintf(buf, "lattice_spc_table_%d_dbl_%s.dat", EN, NgravsNames[l][m]);
+      sprintf(buf, "lattice_spc_table_%d_dbl_%s.dat", NGRAVS_EN, NgravsNames[l][m]);
 #else
-      sprintf(buf, "lattice_spc_table_%d_%s.dat", EN, NgravsNames[l][m]);
+      sprintf(buf, "lattice_spc_table_%d_%s.dat", NGRAVS_EN, NgravsNames[l][m]);
 #endif
 
       if((fd = fopen(buf, "r")))
@@ -3513,10 +3592,10 @@ void lattice_init(void)
 	      fflush(stdout);
 	    }
 
-	  my_fread(&fcorrx[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-	  my_fread(&fcorry[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-	  my_fread(&fcorrz[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-	  my_fread(&potcorr[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
+	  my_fread(&fcorrx[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+	  my_fread(&fcorry[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+	  my_fread(&fcorrz[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+	  my_fread(&potcorr[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
 	  fclose(fd);
 	}
       else
@@ -3529,19 +3608,19 @@ void lattice_init(void)
 
 	  /* ok, let's recompute things. Actually, we do that in parallel. */
 
-	  size = (EN + 1) * (EN + 1) * (EN + 1) / NTask;
+	  size = (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1) / NTask;
 
 
 	  beg = ThisTask * size;
 	  len = size;
 	  if(ThisTask == (NTask - 1))
-	    len = (EN + 1) * (EN + 1) * (EN + 1) - beg;
+	    len = (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1) - beg;
 
-	  for(i = 0, count = 0; i <= EN; i++)
-	    for(j = 0; j <= EN; j++)
-	      for(k = 0; k <= EN; k++)
+	  for(i = 0, count = 0; i <= NGRAVS_EN; i++)
+	    for(j = 0; j <= NGRAVS_EN; j++)
+	      for(k = 0; k <= NGRAVS_EN; k++)
 		{
-		  n = (i * (EN + 1) + j) * (EN + 1) + k;
+		  n = (i * (NGRAVS_EN + 1) + j) * (NGRAVS_EN + 1) + k;
 		  if(n >= beg && n < (beg + len))
 		    {
 		      if(ThisTask == 0)
@@ -3553,9 +3632,9 @@ void lattice_init(void)
 			    }
 			}
 
-		      x[0] = 0.5 * ((double) i) / EN;
-		      x[1] = 0.5 * ((double) j) / EN;
-		      x[2] = 0.5 * ((double) k) / EN;
+		      x[0] = 0.5 * ((double) i) / NGRAVS_EN;
+		      x[1] = 0.5 * ((double) j) / NGRAVS_EN;
+		      x[2] = 0.5 * ((double) k) / NGRAVS_EN;
 
 		      (*LatticeForce[l][m])(i, j, k, x, force);
 
@@ -3578,7 +3657,7 @@ void lattice_init(void)
 	      beg = task * size;
 	      len = size;
 	      if(task == (NTask - 1))
-		len = (EN + 1) * (EN + 1) * (EN + 1) - beg;
+		len = (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1) - beg;
 
 #ifdef DOUBLEPRECISION
 	      MPI_Bcast(&fcorrx[l][m][0][0][beg], len, MPI_DOUBLE, task, MPI_COMM_WORLD);
@@ -3600,10 +3679,10 @@ void lattice_init(void)
 
 	      if((fd = fopen(buf, "w")))
 		{
-		  my_fwrite(&fcorrx[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-		  my_fwrite(&fcorry[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-		  my_fwrite(&fcorrz[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-		  my_fwrite(&potcorr[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
+		  my_fwrite(&fcorrx[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+		  my_fwrite(&fcorry[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+		  my_fwrite(&fcorrz[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+		  my_fwrite(&potcorr[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
 		  fclose(fd);
 		}
 	    }
@@ -3614,11 +3693,11 @@ void lattice_init(void)
 
       // KC 11/16/15
       // Here's the 1/L that shows up later
-      fac_intp = 2 * EN / All.BoxSize;
+      fac_intp = 2 * NGRAVS_EN / All.BoxSize;
 
-      for(i = 0; i <= EN; i++)
-	for(j = 0; j <= EN; j++)
-	  for(k = 0; k <= EN; k++)
+      for(i = 0; i <= NGRAVS_EN; i++)
+	for(j = 0; j <= NGRAVS_EN; j++)
+	  for(k = 0; k <= NGRAVS_EN; k++)
 	    {
 	      potcorr[l][m][i][j][k] /= All.BoxSize;
 	      fcorrx[l][m][i][j][k] /= All.BoxSize * All.BoxSize;
@@ -3677,18 +3756,18 @@ void lattice_corr(double dx, double dy, double dz, int target, int source, doubl
 
   u = dx * fac_intp;
   i = (int) u;
-  if(i >= EN)
-    i = EN - 1;
+  if(i >= NGRAVS_EN)
+    i = NGRAVS_EN - 1;
   u -= i;
   v = dy * fac_intp;
   j = (int) v;
-  if(j >= EN)
-    j = EN - 1;
+  if(j >= NGRAVS_EN)
+    j = NGRAVS_EN - 1;
   v -= j;
   w = dz * fac_intp;
   k = (int) w;
-  if(k >= EN)
-    k = EN - 1;
+  if(k >= NGRAVS_EN)
+    k = NGRAVS_EN - 1;
   w -= k;
 
   f1 = (1 - u) * (1 - v) * (1 - w);
@@ -3750,18 +3829,18 @@ double lattice_pot_corr(double dx, double dy, double dz, int target, int source)
 
   u = dx * fac_intp;
   i = (int) u;
-  if(i >= EN)
-    i = EN - 1;
+  if(i >= NGRAVS_EN)
+    i = NGRAVS_EN - 1;
   u -= i;
   v = dy * fac_intp;
   j = (int) v;
-  if(j >= EN)
-    j = EN - 1;
+  if(j >= NGRAVS_EN)
+    j = NGRAVS_EN - 1;
   v -= j;
   w = dz * fac_intp;
   k = (int) w;
-  if(k >= EN)
-    k = EN - 1;
+  if(k >= NGRAVS_EN)
+    k = NGRAVS_EN - 1;
   w -= k;
 
   f1 = (1 - u) * (1 - v) * (1 - w);
