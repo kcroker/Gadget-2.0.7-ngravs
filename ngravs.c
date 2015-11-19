@@ -461,17 +461,6 @@ double neg_plummer_pot(double target, double source, double h, double r, long N)
 }
 
 
-/*! This is a (0) lattice correction for Yukawa force
- */
-
-/*! This is Newtonian gravity with a Yukawa modification
- * c.f. Shirata, Yoshida, et. al 2005
- */
-double newyukawa(double target, double source, double h, double r, long N) {
-
-  return source / h * -YUKAWA_ALPHA * expm1f(-r*YUKAWA_IMASS);
-}
-
 /*! This is the BAM-BAM interaction
  * c.f. http://arxiv.org/abs/1408.2702
  */
@@ -815,9 +804,9 @@ double ewald_psi(double x[3])
 double yukawa(double target, double source, double h, double r, long N) {
   
 #if defined PERIODIC
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS/All.BoxSize) * (YUKAWA_IMASS/(All.BoxSize*r) + 1.0/h) * pow(YUKAWA_IMASS/All.BoxSize, 2);
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS/All.BoxSize) * (YUKAWA_IMASS/(All.BoxSize*r) + 1.0/h) / pow(YUKAWA_IMASS/All.BoxSize, 2);
 #else
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r + 1.0/h) * YUKAWA_IMASS;
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r + 1.0/h) / YUKAWA_IMASS;
 #endif
 }
 
@@ -834,7 +823,7 @@ double pgyukawa(double target, double source, double k2, double k, long N) {
   // Or these need to be normalized such that the DFT gives unit charge (this should already be the case though)
   // XXX HACK 0.5 to see if we can restore the correct behaviour in long-range.  I believe this is due to 
   // discrepancy in box normalization....
-  return k2 * (YUKAWA_IMASS*YUKAWA_IMASS*PMGRID*PMGRID) / (k2 + (YUKAWA_IMASS*YUKAWA_IMASS)*(PMGRID*PMGRID));
+  return k2 / (k2 + (YUKAWA_IMASS*YUKAWA_IMASS)*(PMGRID*PMGRID) ) / (YUKAWA_IMASS*YUKAWA_IMASS)*(PMGRID*PMGRID);
 }
 
 /*! This function computes the Madelung constant for the yukawa potential
@@ -1004,7 +993,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   // Note that mass^2 prefactor so that the integrated charge is unity!
   //
   for(i = 0; i < 3; i++)
-    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i] * YUKAWA_IMASS*YUKAWA_IMASS; 
+    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i] / YUKAWA_IMASS*YUKAWA_IMASS; 
 
   //yukawa(1.0, 1.0, r2, sqrt(r2), 1) * (x[i] / sqrt(r2));
 
