@@ -3262,7 +3262,7 @@ void force_treeallocate(int maxnodes, int maxpart)
       // Anything above this is oversampling, because the integrand MUST be zero as far as the machine is concerned
       // (because the normalized greens is bounded above by 1).
       //
-      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 1, 1);
+      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 4, 20);
       Z = 0.5; 
 
       if(!ThisTask)
@@ -3692,13 +3692,15 @@ void lattice_init(void)
 	}
 
       // KC 11/16/15
-      // Here's the 1/L that shows up later
+      // Interpolation factor. Ok.
+      //
       fac_intp = 2 * NGRAVS_EN / All.BoxSize;
 
       for(i = 0; i <= NGRAVS_EN; i++)
 	for(j = 0; j <= NGRAVS_EN; j++)
 	  for(k = 0; k <= NGRAVS_EN; k++)
 	    {
+	      // Here's the 1/L that shows up later
 	      potcorr[l][m][i][j][k] /= All.BoxSize;
 	      fcorrx[l][m][i][j][k] /= All.BoxSize * All.BoxSize;
 	      fcorry[l][m][i][j][k] /= All.BoxSize * All.BoxSize;
@@ -3754,6 +3756,9 @@ void lattice_corr(double dx, double dy, double dz, int target, int source, doubl
   else
     signz = -1;
 
+  // KC 11/19/15
+  // Here, the BoxLength values get de-dimensionalized into interpolation
+  // table values
   u = dx * fac_intp;
   i = (int) u;
   if(i >= NGRAVS_EN)

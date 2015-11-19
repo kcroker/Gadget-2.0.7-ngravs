@@ -33,7 +33,7 @@
 #define YUKAWA_ALPHA 1
 
 #ifdef PERIODIC
-#define YUKAWA_IMASS (NGRAVS_EN*0.25)  // In units of NGRAVS_EN, 1/4 of the simulation box
+#define YUKAWA_IMASS 0.9  // Should be given in dimensionless fraction of the boxsize
 #else
 #define YUKAWA_IMASS (1e2/All.BoxLength) // Otherwise, do it in terms of normal units
 #endif
@@ -802,7 +802,7 @@ double ewald_psi(double x[3])
  * ----------------------------------
  * Units to k, k2 in Greens' Functions: k \in [-PMGRID/2, PMGRID/2] (mesh cells)
  * Units to r, r2 in Spline and Accel Functions: r \in [0, BoxLength] or unconstrained (given length unit)
- * Units to x in Lattice functions: x \in [-NGRAVS_EN/2, NGRAVS_EN/2] (interpolation table units)
+ * Units to x in Lattice functions: x \in [0, 0.5] (fractions of the total side length in one octant)
  *
  */
 
@@ -815,9 +815,9 @@ double ewald_psi(double x[3])
 double yukawa(double target, double source, double h, double r, long N) {
   
 #if defined PERIODIC
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS/(NGRAVS_EN*All.BoxSize)) * (YUKAWA_IMASS/(NGRAVS_EN*All.BoxSize*r) + 1.0/h);
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS/All.BoxSize) * (YUKAWA_IMASS/(All.BoxSize*r) + 1.0/h) * pow(YUKAWA_IMASS/All.BoxSize, 2);
 #else
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r + 1.0/h);
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r + 1.0/h) * YUKAWA_IMASS;
 #endif
 }
 
@@ -827,7 +827,14 @@ double yukawa(double target, double source, double h, double r, long N) {
 double pgyukawa(double target, double source, double k2, double k, long N) {
 
   // This function is only called in periodic mode, so it to PMGRID units
-  return k2 / (k2 + (PMGRID*PMGRID)*(YUKAWA_IMASS*YUKAWA_IMASS)/(NGRAVS_EN*NGRAVS_EN));
+  // Note that we have the beta^2 prefactor because Gadget-2 expects the total charge to be
+  // unity!
+  //
+  // KC 19.11.15
+  // Or these need to be normalized such that the DFT gives unit charge (this should already be the case though)
+  // XXX HACK 0.5 to see if we can restore the correct behaviour in long-range.  I believe this is due to 
+  // discrepancy in box normalization....
+  return k2 * (YUKAWA_IMASS*YUKAWA_IMASS*PMGRID*PMGRID) / (k2 + (YUKAWA_IMASS*YUKAWA_IMASS)*(PMGRID*PMGRID));
 }
 
 /*! This function computes the Madelung constant for the yukawa potential
@@ -993,8 +1000,11 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   //  for different box lengths)
   //
   
+  // KC 11/19/15
+  // Note that mass^2 prefactor so that the integrated charge is unity!
+  //
   for(i = 0; i < 3; i++)
-    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i]; 
+    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i] * YUKAWA_IMASS*YUKAWA_IMASS; 
 
   //yukawa(1.0, 1.0, r2, sqrt(r2), 1) * (x[i] / sqrt(r2));
 
@@ -1018,7 +1028,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 	  for(i = 0; i < 3; i++)
 	    force[i] -= dx[i] / (r * r * r) * val;
 
-	  val = 0.5*YUKAWA_IMASS*(-exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
+	  val += 0.5*YUKAWA_IMASS*(-exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
 				  exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha))) +
 	    2*alpha*exp(-alpha*alpha*r*r-YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha))/sqrt(M_PI);
 
@@ -1049,7 +1059,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 		(M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS/(4*M_PI));
 	      
 	      // KC 11/16/15
-	      // The h[i] here is the n\cos\theta that you get on radial differentiation
+	      // XXX?
 	      for(i = 0; i < 3; i++)
 		force[i] -= h[i] * val;
 	    }
@@ -1193,6 +1203,11 @@ FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z) {
   
   FLOAT k2 = k*k;
   
+  // XXX?
+  // But if we fuck with this, we'll break newton.  The exponential factor
+  // seems to be correct because it works with newton, where the normgreens = 1.0
+  //
+  // But if this were the problem, it would only be on the lowend of the force...
   return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
 }
 
