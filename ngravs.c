@@ -33,7 +33,7 @@
 #define YUKAWA_ALPHA 1
 
 #ifdef PERIODIC
-#define YUKAWA_IMASS 0.9  // Should be given in dimensionless fraction of the boxsize
+#define YUKAWA_IMASS 1 // Should be given in dimensionless fraction of the boxsize
 #else
 #define YUKAWA_IMASS (1e2/All.BoxLength) // Otherwise, do it in terms of normal units
 #endif
@@ -803,10 +803,12 @@ double ewald_psi(double x[3])
  */
 double yukawa(double target, double source, double h, double r, long N) {
   
+  // Uhh..
+  // In limit where YUKAWA_IMASS -> 0, this has to become newton.  It does if there is no stupid prefactor.
 #if defined PERIODIC
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS/All.BoxSize) * (YUKAWA_IMASS/(All.BoxSize*r) + 1.0/h) / pow(YUKAWA_IMASS/All.BoxSize, 2);
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS/All.BoxSize) * (YUKAWA_IMASS/(All.BoxSize*r) + 1.0/h);
 #else
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r + 1.0/h) / YUKAWA_IMASS;
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r + 1.0/h);
 #endif
 }
 
@@ -823,7 +825,9 @@ double pgyukawa(double target, double source, double k2, double k, long N) {
   // Or these need to be normalized such that the DFT gives unit charge (this should already be the case though)
   // XXX HACK 0.5 to see if we can restore the correct behaviour in long-range.  I believe this is due to 
   // discrepancy in box normalization....
-  return k2 / (k2 + (YUKAWA_IMASS*YUKAWA_IMASS)*(PMGRID*PMGRID) ) / (YUKAWA_IMASS*YUKAWA_IMASS)*(PMGRID*PMGRID);
+  //
+  // Uhhh, in limit YUKAWA_IMASS->0, this thing has to go to one.  It did not before!
+  return k2 / (k2 + (YUKAWA_IMASS*YUKAWA_IMASS)*(PMGRID*PMGRID));
 }
 
 /*! This function computes the Madelung constant for the yukawa potential
@@ -993,7 +997,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   // Note that mass^2 prefactor so that the integrated charge is unity!
   //
   for(i = 0; i < 3; i++)
-    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i] / YUKAWA_IMASS*YUKAWA_IMASS; 
+    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i]; 
 
   //yukawa(1.0, 1.0, r2, sqrt(r2), 1) * (x[i] / sqrt(r2));
 
@@ -1017,7 +1021,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 	  for(i = 0; i < 3; i++)
 	    force[i] -= dx[i] / (r * r * r) * val;
 
-	  val += 0.5*YUKAWA_IMASS*(-exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
+	  val = 0.5*YUKAWA_IMASS*(-exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
 				  exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha))) +
 	    2*alpha*exp(-alpha*alpha*r*r-YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha))/sqrt(M_PI);
 
