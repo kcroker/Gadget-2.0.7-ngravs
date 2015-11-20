@@ -33,9 +33,9 @@
 #define YUKAWA_ALPHA 1
 
 #ifdef PERIODIC
-#define YUKAWA_IMASS 1 // Should be given in dimensionless fraction of the boxsize
+#define YUKAWA_IMASS (4e-5) // Should be given in dimensionless fraction of the boxsize
 #else
-#define YUKAWA_IMASS (1e2/All.BoxLength) // Otherwise, do it in terms of normal units
+#define YUKAWA_IMASS (1e2/All.BoxSize) // Otherwise, do it in terms of normal units
 #endif
 
 
@@ -805,10 +805,13 @@ double yukawa(double target, double source, double h, double r, long N) {
   
   // Uhh..
   // In limit where YUKAWA_IMASS -> 0, this has to become newton.  It does if there is no stupid prefactor.
+  // YUKAWA_IMASS scales values in [0, 0.5], here we need to scale values in [0, 1], so we need a factor of 2.
+  //   this is hard.
+  //
 #if defined PERIODIC
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS/All.BoxSize) * (YUKAWA_IMASS/(All.BoxSize*r) + 1.0/h);
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS/r + 1.0/h);
 #else
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r + 1.0/h);
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS/r + 1.0/h);
 #endif
 }
 
@@ -817,17 +820,20 @@ double yukawa(double target, double source, double h, double r, long N) {
  */
 double pgyukawa(double target, double source, double k2, double k, long N) {
 
-  // This function is only called in periodic mode, so it to PMGRID units
-  // Note that we have the beta^2 prefactor because Gadget-2 expects the total charge to be
-  // unity!
+  // So, Gadget is expecting something with overall units in PMGRID^2
+  // since these units are later stripped by a prefactor in pm_periodic.c
   //
-  // KC 19.11.15
-  // Or these need to be normalized such that the DFT gives unit charge (this should already be the case though)
-  // XXX HACK 0.5 to see if we can restore the correct behaviour in long-range.  I believe this is due to 
-  // discrepancy in box normalization....
+  // In the force computation:
+  // pm_periodic.c:240 multiplied by fac = All.G * PMGRID / (2 * M_PI * All.BoxSize^2)
+  // 
+  // Also, we have lots of factors of (M_PI/PMGRID) coming in:
+  // pm_periodic.c:475 ff contributes M_PI^3/PMGRID^3
+  // 
+  // We then multiply by 4 of these fuckers.  Wow.  
   //
-  // Uhhh, in limit YUKAWA_IMASS->0, this thing has to go to one.  It did not before!
-  return k2 / (k2 + (YUKAWA_IMASS*YUKAWA_IMASS)*(PMGRID*PMGRID));
+  // Anyway, we keep the factor of 1/k2 in the computation.  So our contribution must be dimensionless.
+  // YUKAWA_IMASS is already \in [0, 0.5] due to requirements in the lattice computation
+  return k2 / (k2 + (YUKAWA_IMASS*YUKAWA_IMASS*PMGRID*PMGRID));
 }
 
 /*! This function computes the Madelung constant for the yukawa potential
@@ -992,13 +998,10 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   // (Because YUKAWA_IMASS is defined in NGRAVS_EN units so that tabulations do not need to be repeated
   //  for different box lengths)
   //
-  
-  // KC 11/19/15
-  // Note that mass^2 prefactor so that the integrated charge is unity!
-  //
+  //   force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i]; 
   for(i = 0; i < 3; i++)
-    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i]; 
-
+    force[i] += yukawa(1.0, 1.0, r2, r, 1) * x[i] / r;
+  
   //yukawa(1.0, 1.0, r2, sqrt(r2), 1) * (x[i] / sqrt(r2));
 
   // KC 12/4/14
