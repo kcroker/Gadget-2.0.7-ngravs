@@ -33,7 +33,7 @@
 #define YUKAWA_ALPHA 1
 
 #ifdef PERIODIC
-#define YUKAWA_IMASS (4e-5) // Should be given in dimensionless fraction of the boxsize
+#define YUKAWA_IMASS (4e-7) // Should be given in dimensionless fraction of the boxsize
 #else
 #define YUKAWA_IMASS (1e2/All.BoxSize) // Otherwise, do it in terms of normal units
 #endif
@@ -809,7 +809,7 @@ double yukawa(double target, double source, double h, double r, long N) {
   //   this is hard.
   //
 #if defined PERIODIC
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS/r + 1.0/h);
+  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS/All.BoxSize) * (YUKAWA_IMASS/(r*All.BoxSize) + 1.0/h);
 #else
   return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS/r + 1.0/h);
 #endif
@@ -998,9 +998,11 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   // (Because YUKAWA_IMASS is defined in NGRAVS_EN units so that tabulations do not need to be repeated
   //  for different box lengths)
   //
-  //   force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i]; 
   for(i = 0; i < 3; i++)
-    force[i] += yukawa(1.0, 1.0, r2, r, 1) * x[i] / r;
+    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i]; 
+   
+
+    //force[i] += yukawa(1.0, 1.0, r2, r, 1) * x[i] / r;
   
   //yukawa(1.0, 1.0, r2, sqrt(r2), 1) * (x[i] / sqrt(r2));
 
