@@ -33,7 +33,7 @@
 #define YUKAWA_ALPHA 1
 
 #ifdef PERIODIC
-#define YUKAWA_IMASS (4e-2) // Should be given in dimensionless fraction of the boxsize
+#define YUKAWA_IMASS (4e-5) // Should be given in dimensionless fraction of the boxsize
 #else
 #define YUKAWA_IMASS (1e2/All.BoxSize) // Otherwise, do it in terms of normal units
 #endif
@@ -230,7 +230,8 @@ void wire_grav_maps(void) {
 
 #if defined OUTPUTPOTENTIAL || defined PMGRID
       GreensFxns[i][j] = pgyukawa;
-      
+      NormedGreensFxns[i][j] = normed_pgyukawa;
+
       // We don't care about the potentials because we're
       // not doing non-periodic or gastrophysics
       PotentialFxns[i][j] = none;
@@ -371,7 +372,10 @@ double neg_newtonian_pot(double target, double source, double h, double r, long 
  */
 double pgdelta(double target, double source, double k2, double k, long N) {
 
-  return 1.0;
+  if(k2 > 0)
+     return 1.0/k2;
+  else
+    return 1.0;
 }
 
 /*! This is the **inverted** box periodic Green's function for a point source of unit mass, 
@@ -379,7 +383,10 @@ double pgdelta(double target, double source, double k2, double k, long N) {
  */
 double neg_pgdelta(double target, double source, double k2, double k, long N) {
 
-  return -1.0;
+  if(k2 > 0)
+     return -1.0/k2;
+  else
+    return -1.0;
 }
 
 /*! This is the Plummer spline used by GADGET-2
@@ -827,11 +834,17 @@ double pgyukawa(double target, double source, double k2, double k, long N) {
   // Since we keep the factor of 1/k2 in the pm_periodic.c computation, our modulation must be dimensionless.
   // Since pmforce_periodic uses units of k \in [-PMGRID/2, PMGRID/2], we must convert from dimensionless 
   // lattice tabulation units into dimensionless mesh units.
-  double ym = (PMGRID/2.0)*YUKAWA_IMASS/(2.0*NGRAVS_EN);
+  double ym = PMGRID*YUKAWA_IMASS/(2.0*NGRAVS_EN);
 
   // The expression in pm_periodic.c has an overall factor of 1/M_PI
   // Perhaps we want exactly ym*ym...
-  return k2 / (k2 + ym*ym);
+  return 1.0 / (k2 + ym*ym);
+}
+
+double normed_pgyukawa(double target, double source, double k2, double k, long N) {
+
+    double ym = (PMGRID/2.0)*YUKAWA_IMASS/(2.0*NGRAVS_EN);
+    return k2 / (k2 + ym*ym);
 }
 
 /*! This function computes the Madelung constant for the yukawa potential
@@ -1018,15 +1031,15 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 
   	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
   	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
-  	  val = 0.5*( exp(ym*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) +
-  		      exp(-ym*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha)));
+  	  val = 0.5*( exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) +
+  		      exp(-ym*r)*erfc(alpha*r - ym/(2*alpha)));
 	  
   	  for(i = 0; i < 3; i++)
   	    force[i] -= dx[i] / (r * r * r) * val;
 
-  	  val = 0.5*ym*(-exp(ym*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) +
-			exp(-ym*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha))) +
-  	    2*alpha*exp(-alpha*alpha*r*r-YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha))/sqrt(M_PI);
+  	  val = 0.5*ym*(-exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) +
+			exp(-ym*r)*erfc(alpha*r - ym/(2*alpha))) +
+  	    2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI);
 
   	  // KC 11/16/15
   	  // Note that these terms enter with one less radial power in the denominator

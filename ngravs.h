@@ -36,6 +36,9 @@ double pgdelta(double target, double source, double k2, double k, long N);
 double neg_pgdelta(double target, double source, double k2, double k, long N); 
 double pgyukawa(double target, double source, double k2, double k, long N); 
 
+// (Periodic) Normed Greens functions
+double normed_pgyukawa(double target, double source, double k2, double k, long N); 
+
 // Potential functions
 double newtonian_pot(double target, double source, double h, double r, long N);
 double neg_newtonian_pot(double target, double source, double h, double r, long N);

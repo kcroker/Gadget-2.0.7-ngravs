@@ -3277,7 +3277,7 @@ void force_treeallocate(int maxnodes, int maxpart)
 	  // KC 11/17/15
 	  // So horribly inefficient.  These should be pointers to the table to use
 	  i = performConvolution(ngravsPeriodicTable, 
-				 GreensFxns[nB][nA], 
+				 NormedGreensFxns[nB][nA], 
 				 Z,
 				 shortrange_fourier_pot[nB][nA], 
 				 shortrange_fourier_force[nB][nA]);

@@ -152,6 +152,7 @@ extern float LatticeZero[N_GRAVS][N_GRAVS];
 
 #if defined OUTPUTPOTENTIAL || defined PMGRID
 extern gravity GreensFxns[N_GRAVS][N_GRAVS];
+extern gravity NormedGreensFxns[N_GRAVS][N_GRAVS];
 extern gravity PotentialSplines[N_GRAVS][N_GRAVS];
 extern gravity PotentialFxns[N_GRAVS][N_GRAVS];
 extern float PotentialZero[N_GRAVS][N_GRAVS];

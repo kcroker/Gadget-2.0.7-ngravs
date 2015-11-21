@@ -134,6 +134,7 @@ int TypeToGrav[6];
 int NgravLocal[N_GRAVS];
 gravity AccelFxns[N_GRAVS][N_GRAVS];
 gravity GreensFxns[N_GRAVS][N_GRAVS];
+gravity NormedGreensFxns[N_GRAVS][N_GRAVS];
 gravity AccelSplines[N_GRAVS][N_GRAVS];
 
 latforce LatticeForce[N_GRAVS][N_GRAVS];
