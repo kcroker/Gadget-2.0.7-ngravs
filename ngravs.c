@@ -33,7 +33,7 @@
 #define YUKAWA_ALPHA 1
 
 #ifdef PERIODIC
-#define YUKAWA_IMASS (4e-1) // Should be given in dimensionless fraction of the boxsize
+#define YUKAWA_IMASS (4e-5) // Should be given in dimensionless fraction of the boxsize
 #else
 #define YUKAWA_IMASS (1e2/All.BoxSize) // Otherwise, do it in terms of normal units
 #endif
@@ -827,7 +827,7 @@ double pgyukawa(double target, double source, double k2, double k, long N) {
   // Since we keep the factor of 1/k2 in the pm_periodic.c computation, our modulation must be dimensionless.
   // Since pmforce_periodic uses units of k \in [-PMGRID/2, PMGRID/2], we must convert from dimensionless 
   // lattice tabulation units into dimensionless mesh units.
-  double ym = 2*YUKAWA_IMASS/NGRAVS_EN*PMGRID;
+  double ym = (PMGRID)*YUKAWA_IMASS/(2*NGRAVS_EN);
 
   return k2 / (k2 + ym*ym);
 }
