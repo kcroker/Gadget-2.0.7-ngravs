@@ -33,7 +33,7 @@
 #define YUKAWA_ALPHA 1
 
 #ifdef PERIODIC
-#define YUKAWA_IMASS (4e-7) // Should be given in dimensionless fraction of the boxsize
+#define YUKAWA_IMASS (4e-3) // Should be given in dimensionless fraction of the boxsize
 #else
 #define YUKAWA_IMASS (1e2/All.BoxSize) // Otherwise, do it in terms of normal units
 #endif
@@ -207,7 +207,7 @@ void wire_grav_maps(void) {
       // This is not a leak because we need these handles throughout the
       // entire program run.
       fname = (char *)malloc(128);
-      snprintf(fname, 128, "Yukawa_%f", YUKAWA_IMASS);
+      snprintf(fname, 128, "Yukawa_%e", YUKAWA_IMASS);
  
       NgravsNames[i][j] = fname;
       AccelFxns[i][j] = yukawa;
@@ -803,13 +803,17 @@ double ewald_psi(double x[3])
  */
 double yukawa(double target, double source, double h, double r, long N) {
   
+  double ym;
   // Uhh..
   // In limit where YUKAWA_IMASS -> 0, this has to become newton.  It does if there is no stupid prefactor.
   // YUKAWA_IMASS scales values in [0, 0.5], here we need to scale values in [0, 1], so we need a factor of 2.
   //   this is hard.
   //
 #if defined PERIODIC
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS/All.BoxSize) * (YUKAWA_IMASS/(r*All.BoxSize) + 1.0/h);
+
+  // Because, by fac_intp: r = L*u/(2EN)
+  ym = 2*NGRAVS_EN*YUKAWA_IMASS/All.BoxSize;
+  return source * YUKAWA_ALPHA * exp(-r*ym) * (ym/r + 1.0/h);
 #else
   return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS/r + 1.0/h);
 #endif
@@ -820,20 +824,12 @@ double yukawa(double target, double source, double h, double r, long N) {
  */
 double pgyukawa(double target, double source, double k2, double k, long N) {
 
-  // So, Gadget is expecting something with overall units in PMGRID^2
-  // since these units are later stripped by a prefactor in pm_periodic.c
-  //
-  // In the force computation:
-  // pm_periodic.c:240 multiplied by fac = All.G * PMGRID / (2 * M_PI * All.BoxSize^2)
-  // 
-  // Also, we have lots of factors of (M_PI/PMGRID) coming in:
-  // pm_periodic.c:475 ff contributes M_PI^3/PMGRID^3
-  // 
-  // We then multiply by 4 of these fuckers.  Wow.  
-  //
-  // Anyway, we keep the factor of 1/k2 in the computation.  So our contribution must be dimensionless.
-  // YUKAWA_IMASS is already \in [0, 0.5] due to requirements in the lattice computation
-  return k2 / (k2 + (YUKAWA_IMASS*YUKAWA_IMASS*PMGRID*PMGRID));
+  // Since we keep the factor of 1/k2 in the pm_periodic.c computation, our modulation must be dimensionless.
+  // Since pmforce_periodic uses units of k \in [-PMGRID/2, PMGRID/2], we must convert from dimensionless 
+  // lattice tabulation units into dimensionless mesh units.
+  double ym = YUKAWA_IMASS/NGRAVS_EN*PMGRID;
+
+  return k2 / (k2 + ym*ym);
 }
 
 /*! This function computes the Madelung constant for the yukawa potential
@@ -992,19 +988,10 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   // 
   // Optimize later (this is only used for preliminary tabulations)
   //
-  // Note that r and r2 are in units of NGRAVS_EN, so we don't use the usual Yukawa force
-  // function which assumes things are in internal units...
-  //
-  // (Because YUKAWA_IMASS is defined in NGRAVS_EN units so that tabulations do not need to be repeated
-  //  for different box lengths)
-  //
+  // YUKAWA_IMASS is a dimensionless fraction of the boxlength.  Since the r and r2 here are also
+  // dimensionless, we cannot use the yukawa() which includes a factor to remove the radial units
   for(i = 0; i < 3; i++)
     force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i]; 
-   
-
-    //force[i] += yukawa(1.0, 1.0, r2, r, 1) * x[i] / r;
-  
-  //yukawa(1.0, 1.0, r2, sqrt(r2), 1) * (x[i] / sqrt(r2));
 
   // KC 12/4/14
   // Looks like this takes the first four images out in position space in each direction (so 
