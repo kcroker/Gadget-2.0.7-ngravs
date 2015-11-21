@@ -33,7 +33,7 @@
 #define YUKAWA_ALPHA 1
 
 #ifdef PERIODIC
-#define YUKAWA_IMASS (4e-3) // Should be given in dimensionless fraction of the boxsize
+#define YUKAWA_IMASS (4e-1) // Should be given in dimensionless fraction of the boxsize
 #else
 #define YUKAWA_IMASS (1e2/All.BoxSize) // Otherwise, do it in terms of normal units
 #endif
@@ -827,7 +827,7 @@ double pgyukawa(double target, double source, double k2, double k, long N) {
   // Since we keep the factor of 1/k2 in the pm_periodic.c computation, our modulation must be dimensionless.
   // Since pmforce_periodic uses units of k \in [-PMGRID/2, PMGRID/2], we must convert from dimensionless 
   // lattice tabulation units into dimensionless mesh units.
-  double ym = YUKAWA_IMASS/NGRAVS_EN*PMGRID;
+  double ym = 2*YUKAWA_IMASS/NGRAVS_EN*PMGRID;
 
   return k2 / (k2 + ym*ym);
 }
@@ -990,38 +990,41 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   //
   // YUKAWA_IMASS is a dimensionless fraction of the boxlength.  Since the r and r2 here are also
   // dimensionless, we cannot use the yukawa() which includes a factor to remove the radial units
+  //
+  // r \in [0, 0.5] (so YUKAWA_IMASS is in units of half-dimensionless-boxsize)
   for(i = 0; i < 3; i++)
-    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS / r2 + 1.0/(r2*r)) * x[i]; 
+    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS*NGRAVS_EN*2) * (YUKAWA_IMASS*NGRAVS_EN*2 / r2 + 1.0/(r2*r)) * x[i]; 
 
+#ifndef NGRAVS_DEBUG_UNITS_CHECK
   // KC 12/4/14
-  // Looks like this takes the first four images out in position space in each direction (so 
+  // Looks like this takes the first four images out in position space in each direction (so
   // bracketing by 8 overall)
   for(n[0] = -5; n[0] <= 5; n[0]++)
     for(n[1] = -5; n[1] <= 5; n[1]++)
       for(n[2] = -5; n[2] <= 5; n[2]++)
-	{
-	  for(i = 0; i < 3; i++)
-	    dx[i] = x[i] - n[i];
+  	{
+  	  for(i = 0; i < 3; i++)
+  	    dx[i] = x[i] - n[i];
 
-	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+  	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
 
-	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
-	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
-	  val = 0.5*( exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
-		      exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha)));
+  	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
+  	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
+  	  val = 0.5*( exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) +
+  		      exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha)));
 	  
-	  for(i = 0; i < 3; i++)
-	    force[i] -= dx[i] / (r * r * r) * val;
+  	  for(i = 0; i < 3; i++)
+  	    force[i] -= dx[i] / (r * r * r) * val;
 
-	  val = 0.5*YUKAWA_IMASS*(-exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) + 
-				  exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha))) +
-	    2*alpha*exp(-alpha*alpha*r*r-YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha))/sqrt(M_PI);
+  	  val = 0.5*YUKAWA_IMASS*(-exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) +
+  				  exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha))) +
+  	    2*alpha*exp(-alpha*alpha*r*r-YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha))/sqrt(M_PI);
 
-	  // KC 11/16/15
-	  // Note that these terms enter with one less radial power in the denominator
-	  for(i = 0; i < 3; i++)
-	    force[i] -= dx[i] / (r * r) * val;
-	}
+  	  // KC 11/16/15
+  	  // Note that these terms enter with one less radial power in the denominator
+  	  for(i = 0; i < 3; i++)
+  	    force[i] -= dx[i] / (r * r) * val;
+  	}
 
   // KC 12/4/14
   // Looks like this takes the first four images in momentum space in each diretion (again
@@ -1033,22 +1036,23 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   for(h[0] = -5; h[0] <= 5; h[0]++)
     for(h[1] = -5; h[1] <= 5; h[1]++)
       for(h[2] = -5; h[2] <= 5; h[2]++)
-	{
-	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
-	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
+  	{
+  	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
+  	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
 
-	  if(h2 > 0)
-	    {
-	      //	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
-	      val = 2*M_PI*exp(-(4*M_PI*M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS)/(4*alpha*alpha))*sin(2*M_PI*hdotx) / 
-		(M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS/(4*M_PI));
+  	  if(h2 > 0)
+  	    {
+  	      //	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
+  	      val = 2*M_PI*exp(-(4*M_PI*M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS)/(4*alpha*alpha))*sin(2*M_PI*hdotx) /
+  		(M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS/(4*M_PI));
 	      
-	      // KC 11/16/15
-	      // XXX?
-	      for(i = 0; i < 3; i++)
-		force[i] -= h[i] * val;
-	    }
-	}
+  	      // KC 11/16/15
+  	      // XXX?
+  	      for(i = 0; i < 3; i++)
+  		force[i] -= h[i] * val;
+  	    }
+  	}
+#endif
 }
 
 double lattice_pot_none(double x[3]) {

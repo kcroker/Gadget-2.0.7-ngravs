@@ -3468,8 +3468,13 @@ int force_treeevaluate_direct(int target, int mode)
       acc_z += dz * fac;
 
 #ifdef PERIODIC
+      // KC 11/21/15
+      // (Even if we are too close for accel, the periodic images are not, so we need to correct
+      // for them.)
       if(u > 1.0e-5)
 	{
+
+	  // Here lattice_corr is fed dimensionful displacements....
 	  lattice_corr(dx, dy, dz, pgravtype, TypeToGrav[P[i].Type], fcorr);
 
 	  acc_x += P[i].Mass * fcorr[0];
@@ -3566,6 +3571,7 @@ void lattice_init(void)
   FILE *fd;
   
   int l, m;
+  double r2;
 
   if(ThisTask == 0)
     {
@@ -3701,10 +3707,31 @@ void lattice_init(void)
 	  for(k = 0; k <= NGRAVS_EN; k++)
 	    {
 	      // Here's the 1/L that shows up later
+	      
+	      // This is the overall factor of 1/L that can be seen in (3.1) of G. Salin
 	      potcorr[l][m][i][j][k] /= All.BoxSize;
+
+	      // The radial derivative then gives an overall factor of 1/L^2 by the chain rule
 	      fcorrx[l][m][i][j][k] /= All.BoxSize * All.BoxSize;
 	      fcorry[l][m][i][j][k] /= All.BoxSize * All.BoxSize;
 	      fcorrz[l][m][i][j][k] /= All.BoxSize * All.BoxSize;
+
+#ifdef NGRAVS_DEBUG_UNITS_CHECK
+	      // DEBUG
+	      // Note that fcorr[xyz] has the direction information on it: x[i]/r
+	      // AccelFxns does not.
+	      // Check for sanity in the force and lattice tables (only works if you disable the lattice correction part of 
+	      // the lattice computation).  The the tabulated value and the computed value should be the same, roughly.
+	      if(!ThisTask) {
+		r2 = (i*i + j*j + k*k)/((double)fac_intp*fac_intp);	
+		if(r2 > 10) {
+		  fprintf(stderr, "%.7e %.7e %.7e\n", 
+			  sqrt(r2),
+			  (*AccelFxns[l][m])(1.0, 1.0, r2, sqrt(r2), 1),
+			  (fcorrx[l][m][i][j][k]*i + fcorry[l][m][i][j][k]*j + fcorrz[l][m][i][j][k]*k)/sqrt(i*i + j*j + k*k));
+		}
+	      }
+#endif
 	    }
 
         // Close NGRAVS loops
