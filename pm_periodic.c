@@ -506,6 +506,8 @@ void pmforce_periodic(void)
 		  //
 		  
 		  // Note we explicitly divide by k2 to undo the normalization
+		  // 
+		  // Hrm.  Putting the same k2 in the GreensFxns will cancel any units it was supposed to have on it
 		  smth *= (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1) / k2;
 		  /* end deconvolution */
 		  

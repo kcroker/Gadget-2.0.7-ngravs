@@ -33,7 +33,7 @@
 #define YUKAWA_ALPHA 1
 
 #ifdef PERIODIC
-#define YUKAWA_IMASS (4e-5) // Should be given in dimensionless fraction of the boxsize
+#define YUKAWA_IMASS (4e-2) // Should be given in dimensionless fraction of the boxsize
 #else
 #define YUKAWA_IMASS (1e2/All.BoxSize) // Otherwise, do it in terms of normal units
 #endif
@@ -223,7 +223,7 @@ void wire_grav_maps(void) {
       // J. Chem. Phys., Vol 113, No. 23, 2000
       LatticeForce[i][j] = yukawa_lattice_force;
       LatticePotential[i][j] = yukawa_lattice_psi;
-      LatticeZero[i][j] = yukawa_madelung(YUKAWA_IMASS);
+      LatticeZero[i][j] = yukawa_madelung(YUKAWA_IMASS*2*NGRAVS_EN);
       if(!ThisTask)
 	printf("ngravs: Yukawa force Madelung constant for [%d][%d] = %f\n", i, j, LatticeZero[i][j]);
 #endif
@@ -827,8 +827,10 @@ double pgyukawa(double target, double source, double k2, double k, long N) {
   // Since we keep the factor of 1/k2 in the pm_periodic.c computation, our modulation must be dimensionless.
   // Since pmforce_periodic uses units of k \in [-PMGRID/2, PMGRID/2], we must convert from dimensionless 
   // lattice tabulation units into dimensionless mesh units.
-  double ym = (PMGRID)*YUKAWA_IMASS/(2*NGRAVS_EN);
+  double ym = (PMGRID/2.0)*YUKAWA_IMASS/(2.0*NGRAVS_EN);
 
+  // The expression in pm_periodic.c has an overall factor of 1/M_PI
+  // Perhaps we want exactly ym*ym...
   return k2 / (k2 + ym*ym);
 }
 
@@ -866,11 +868,18 @@ double yukawa_madelung(double ym) {
 
 	// Here we use n for both the k sum and the n sum because they are both dimensionless
 	k2 = n[0]*n[0] + n[1]*n[1] + n[2]*n[2];
+	
 	if(k2 > 0) {
 	  m = sqrt(k2);
 	  k2 *= 4*M_PI*M_PI;
 	  sum1 += exp(-(k2 + ym*ym)/(4*alpha*alpha))/(k2 + ym*ym);
 	  sum2 += (erfc(alpha*m + ym/(2*alpha))*exp(ym*m) + erfc(alpha*m-ym/(2*alpha))*exp(-ym*m))/(2*m);
+	}
+	else {
+	  
+	  // XXX Need to explicitly take the limit!  erfc(m)/m
+	  // will have a finite value.
+
 	}
       }
     }
@@ -904,8 +913,7 @@ double yukawa_lattice_psi(double x[3])
   // and those in J. Chem. Phys., Vol. 113, No. 23, 2000, Eqn. (3.1)
   // when *their* \alpha \to 0
   //
-  // NOTE: YUKAWA_IMASS is in terms of 1/NGRAVS_EN since r here is in units of NGRAVS_EN
-  //
+  // XXX - not unit corrected!
   
   // KC 11/16/15
   // Notice we use Salin's ideal transition of 5.64 with summations out to |n| = 5
@@ -965,6 +973,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   double alpha, r2;
   double r, val, hdotx, dx[3];
   int i, h[3], n[3], h2;
+  double ym;
 
   // KC 11/16/15
   // Note our use of Salin's optimal 'alpha', and our excessive momentum-space
@@ -981,24 +990,23 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 
   // KC 11/16/15
   // Here we add in the original force, with the displacement vector
-  // normalization included.  This makes me wonder if I should be including this factor in my
-  // short-range tabulations.  It would allow me to make the spline functions and acceleration
-  // functions interchangable again, and to remove an additional division in non-splined
-  // forces, which are both nice features....
-  // 
-  // Optimize later (this is only used for preliminary tabulations)
+  // normalization included. 
   //
-  // YUKAWA_IMASS is a dimensionless fraction of the boxlength.  Since the r and r2 here are also
-  // dimensionless, we cannot use the yukawa() which includes a factor to remove the radial units
+  // NOTE:
+  //   r \in [0, sqrt(3)*0.5] (indexing possible top octant values)
+  //   Below is what was required to make the computed force with a call to yukawa()
+  //   equal to that computed here, with the distinct units on each.
   //
-  // r \in [0, 0.5] (so YUKAWA_IMASS is in units of half-dimensionless-boxsize)
+  ym = YUKAWA_IMASS*NGRAVS_EN*2;
+
   for(i = 0; i < 3; i++)
-    force[i] += YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS*NGRAVS_EN*2) * (YUKAWA_IMASS*NGRAVS_EN*2 / r2 + 1.0/(r2*r)) * x[i]; 
+    force[i] += YUKAWA_ALPHA * exp(-r*ym) * (ym / r2 + 1.0/(r2*r)) * x[i]; 
 
 #ifndef NGRAVS_DEBUG_UNITS_CHECK
   // KC 12/4/14
   // Looks like this takes the first four images out in position space in each direction (so
   // bracketing by 8 overall)
+  
   for(n[0] = -5; n[0] <= 5; n[0]++)
     for(n[1] = -5; n[1] <= 5; n[1]++)
       for(n[2] = -5; n[2] <= 5; n[2]++)
@@ -1010,14 +1018,14 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 
   	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
   	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
-  	  val = 0.5*( exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) +
-  		      exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha)));
+  	  val = 0.5*( exp(ym*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) +
+  		      exp(-ym*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha)));
 	  
   	  for(i = 0; i < 3; i++)
   	    force[i] -= dx[i] / (r * r * r) * val;
 
-  	  val = 0.5*YUKAWA_IMASS*(-exp(YUKAWA_IMASS*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) +
-  				  exp(-YUKAWA_IMASS*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha))) +
+  	  val = 0.5*ym*(-exp(ym*r)*erfc(alpha*r + YUKAWA_IMASS/(2*alpha)) +
+			exp(-ym*r)*erfc(alpha*r - YUKAWA_IMASS/(2*alpha))) +
   	    2*alpha*exp(-alpha*alpha*r*r-YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha))/sqrt(M_PI);
 
   	  // KC 11/16/15
@@ -1040,18 +1048,16 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
   	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
 
-  	  if(h2 > 0)
-  	    {
-  	      //	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
-  	      val = 2*M_PI*exp(-(4*M_PI*M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS)/(4*alpha*alpha))*sin(2*M_PI*hdotx) /
-  		(M_PI*h2 + YUKAWA_IMASS*YUKAWA_IMASS/(4*M_PI));
+	  if(h2 > 0) {
+
+	    //	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
+	    val = 2*M_PI*exp(-(4*M_PI*M_PI*h2 + ym*ym)/(4*alpha*alpha))*sin(2*M_PI*hdotx) /
+	      (M_PI*h2 + ym*ym/(4*M_PI));
 	      
-  	      // KC 11/16/15
-  	      // XXX?
-  	      for(i = 0; i < 3; i++)
-  		force[i] -= h[i] * val;
-  	    }
-  	}
+	    for(i = 0; i < 3; i++)
+	      force[i] -= h[i] * val;
+	  }
+	}
 #endif
 }
 
