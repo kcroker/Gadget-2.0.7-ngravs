@@ -35,12 +35,10 @@ class Datum:
 if not os.path.exists("tpmfp"):
    os.mkdir("tpmfp")
 
-# Unbuffered
-recv = open("./tpmfp/tpmfp_output", 'w', 0)
-
 if len(sys.argv) < 3:
     print "Usage: %s <# times> <bin width> [skip sim?]" % sys.argv[0]
     exit(1)
+
 
 # So the variable persists
 i = 0
@@ -62,17 +60,41 @@ if not len(sys.argv) > 3:
         # Stash it
         os.system("mv ./tpmfp/forcetest.txt ./tpmfp/forcetest_%d.txt" % i)
 else:
-    print "Skipping sim runs..."
-
+    # Set i to the desired number of files (minus 1 of course)
+    i = int(sys.argv[1]) - 1
+    print "Skipping sim runs, looking for %d forcetest files..." % (i+1)
 
 # Now make the forceerrors
-while i > 0:
+# Unbuffered
+recv = open("./tpmfp/tpmfp_output", 'w', 0)
+
+def processStack(found):
+    # We have transitioned, compute the forces from this batch
+    if not found:
+        print "Never found the heavy guy in run %d..." % i
+        exit(1)
+
+    while len(stack) > 0:
+        e = stack.pop()
+
+        # Watch for overflow...
+        r = math.hypot(math.hypot(cenx - e.x, ceny - e.y), cenz - e.z)
+        truef = math.hypot(math.hypot(e.fx, e.fy), e.fz)
+        compf = math.hypot(math.hypot(e.cfx, e.cfy), e.cfz)
+
+        # Output a datapoint
+        if truef < 2e-14:
+            recv.write("%f nan\n" % r)
+        else:
+            recv.write("%f %f\n" % (r, (compf - truef)/truef))
+
+while i > -1:
     
     # make stack
     first = True 
     found = False
 
-    for line in open("./tpmfp/forcetest_%d.txt" % i):
+    for n,line in enumerate(open("./tpmfp/forcetest_%d.txt" % i)):
 
         # Slick scanf like parsing from Chris Dellin @ stackoverflow!
         (ptype, pt, ptdelta, 
@@ -92,25 +114,8 @@ while i > 0:
             first = False
 
         if not now == pt:
-            # We have transitioned, compute the forces from this batch
-            if not found:
-                print "Never found the heavy guy..."
-                exit(0)
-
-            while len(stack) > 0:
-                e = stack.pop()
-
-                # Watch for overflow...
-                r = math.hypot(math.hypot(cenx - e.x, ceny - e.y), cenz - e.z)
-                truef = math.hypot(math.hypot(e.fx, e.fy), e.fz)
-                compf = math.hypot(math.hypot(e.cfx, e.cfy), e.cfz)
-
-                # Output a datapoint
-                if truef < 2e-14:
-                    recv.write("%f nan\n" % r)
-                else:
-                    recv.write("%f %f\n" % (r, (compf - truef)/truef))
-
+            processStack(found)
+            
             # Set to the new time
             now = pt
             found = False
@@ -127,6 +132,9 @@ while i > 0:
             else:    
                 # Stash for later
                 stack.append(Datum(x, y, z, fx, fy, fz, cfx, cfy, cfz));
+                
+    # We still have the last segment on the stack
+    processStack(found)
 
     # Process the next forcetest
     i -= 1
@@ -135,33 +143,37 @@ recv.close()
 print "%d Gadget2 forcetest.txt files worked down!" % int(sys.argv[1])
 
 # Sort the output
-os.system("cat ./tpmfp/tpmfp_output | sort -g > ./tpmfp/tpmfp_sorted")
+os.system("sort -g < ./tpmfp/tpmfp_output > ./tpmfp/tpmfp_sorted")
 print "Output sorted!"
  
-# Now compute the binned RMS
-i = 1
+# Now compute the binned RMS, unbuffered
 binned = open("./tpmfp/tpmfp_rms", "w", 0)
+i = 1
+bincen = pow(2, i)
 
-for line in open("./tpmfp/tpmfp_output", "rt"):
-    (r, error) = [t(s) for t(s) in zip((float, float), line.split())]
-    
-    # While we are in the first bin
-    if r < i*float(sys.argv[2]):
+for line in open("./tpmfp/tpmfp_sorted", "rt"):
+    (r, error) = [t(s) for t,s in zip((float, float), line.split())]
+
+    if r > i*float(sys.argv[2]):
+        N = len(stack)
+        sum = 0.0
+        while len(stack) > 0:
+            sum += float(stack.pop())
+        
+        if N > 0:
+            # Record the RMS
+            # Binned radius is a midpoint
+            binned.write("%f %f\n" % ( (i - 1)*float(sys.argv[2]) + 0.5*float(sys.argv[2]), math.sqrt(sum*sum/(N*N))))
+        else:
+            print "Read r = %f, which exceeds %f, fast forwarding..." % (r, float(sys.argv[2])*i)
+            binned.write("%f %f\n" % ( (i - 1)*float(sys.argv[2]) + 0.5*float(sys.argv[2]), 0))
+
+        # Now fast forward because we need to put our current error somewhere
+        while r > i*float(sys.argv[2]):
+            i += 1
         stack.append(error)
     else:
-        # We hit the next range, compute an RMS
-        sum = 0.0
-        N = len(stack)
-        while len(stack) > 0:
-            sum += stack.pop()
-        
-        # Record the RMS
-        write(binned, "%f %f\n" % ( (i - 1)*float(sys.argv[2]) + 0.5*float(sys.argv[2]), math.sqrt(sum*sum/(N*N))))
-
-        # Start processing next homie
-        i += 1
-
-        # Stack is empty, put the line we just read onto it
+        print "Pushing %f" % error
         stack.append(error)
 
 binned.close()
