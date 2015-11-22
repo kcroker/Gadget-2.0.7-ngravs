@@ -38,15 +38,19 @@ if not os.path.exists("tpmfp"):
 # Unbuffered
 recv = open("./tpmfp/tpmfp_output", 'w', 0)
 
-if len(sys.argv) < 2:
-    print "Usage: %s <# times>" % sys.argv[0]
+if len(sys.argv) < 3:
+    print "Usage: %s <# times> <bin width> [skip sim?]" % sys.argv[0]
     exit(1)
 
-# Do it 
-for i in range(int(sys.argv[1])):
+# So the variable persists
+i = 0
+stack = []
 
-    # If there is a 3rd argument, skip running the sim and just work down the data
-    if not len(sys.argv) > 2: 
+# Do it 
+# If there is a 3rd argument, skip running the sim and just work down the data
+if not len(sys.argv) > 3: 
+    for i in range(int(sys.argv[1])):
+
         # Use this as the merge
         os.system("g2munge - rand 9999 10000 2.5e-4 1 2 > ./tpmfp/tpmfp_tests")
     
@@ -54,16 +58,21 @@ for i in range(int(sys.argv[1])):
         os.system("g2munge - rand 1 10000 1.0 1 1 | g2munge - merge ./tpmfp/tpmfp_tests > ./tpmfp/tpmfp_IC")
 
         os.system("mpirun -n 2 ./Gadget2 Configuration.tpmfp")
-    else:
-        print "Skipping sim runs..."
 
+        # Stash it
+        os.system("mv ./tpmfp/forcetest.txt ./tpmfp/forcetest_%d.txt" % i)
+else:
+    print "Skipping sim runs..."
+
+
+# Now make the forceerrors
+while i > 0:
+    
     # make stack
-    stack = []
     first = True 
     found = False
 
-    # Now make the forceerrors
-    for n,input in enumerate(open("./tpmfp/forcetest.txt")):
+    for line in open("./tpmfp/forcetest_%d.txt" % i):
 
         # Slick scanf like parsing from Chris Dellin @ stackoverflow!
         (ptype, pt, ptdelta, 
@@ -75,13 +84,13 @@ for i in range(int(sys.argv[1])):
                                 float, float, float,
                                 float, float, float,
                                 float, float, float,
-                                float, float, float), input.split())]
+                                float, float, float), line.split())]
 
         # Mark the first time we get, so we can process times in chunks
         if first:
             now = pt
             first = False
-        
+
         if not now == pt:
             # We have transitioned, compute the forces from this batch
             if not found:
@@ -90,14 +99,13 @@ for i in range(int(sys.argv[1])):
 
             while len(stack) > 0:
                 e = stack.pop()
-                    
+
                 # Watch for overflow...
                 r = math.hypot(math.hypot(cenx - e.x, ceny - e.y), cenz - e.z)
                 truef = math.hypot(math.hypot(e.fx, e.fy), e.fz)
                 compf = math.hypot(math.hypot(e.cfx, e.cfy), e.cfz)
-        
+
                 # Output a datapoint
-                # Randomly take the computed force and flip the sign
                 if truef < 2e-14:
                     recv.write("%f nan\n" % r)
                 else:
@@ -120,5 +128,42 @@ for i in range(int(sys.argv[1])):
                 # Stash for later
                 stack.append(Datum(x, y, z, fx, fy, fz, cfx, cfy, cfz));
 
+    # Process the next forcetest
+    i -= 1
+
 recv.close()
+print "%d Gadget2 forcetest.txt files worked down!" % int(sys.argv[1])
+
+# Sort the output
+os.system("cat ./tpmfp/tpmfp_output | sort -g > ./tpmfp/tpmfp_sorted")
+print "Output sorted!"
+ 
+# Now compute the binned RMS
+i = 1
+binned = open("./tpmfp/tpmfp_rms", "w", 0)
+
+for line in open("./tpmfp/tpmfp_output", "rt"):
+    (r, error) = [t(s) for t(s) in zip((float, float), line.split())]
+    
+    # While we are in the first bin
+    if r < i*float(sys.argv[2]):
+        stack.append(error)
+    else:
+        # We hit the next range, compute an RMS
+        sum = 0.0
+        N = len(stack)
+        while len(stack) > 0:
+            sum += stack.pop()
+        
+        # Record the RMS
+        write(binned, "%f %f\n" % ( (i - 1)*float(sys.argv[2]) + 0.5*float(sys.argv[2]), math.sqrt(sum*sum/(N*N))))
+
+        # Start processing next homie
+        i += 1
+
+        # Stack is empty, put the line we just read onto it
+        stack.append(error)
+
+binned.close()
+print "Output binned!"
 sys.exit()
