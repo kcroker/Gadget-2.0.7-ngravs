@@ -149,31 +149,38 @@ print "Output sorted!"
 # Now compute the binned RMS, unbuffered
 binned = open("./tpmfp/tpmfp_rms", "w", 0)
 i = 1
-bincen = pow(2, i)
+
+# Gadget-2 paper looks at things out to half the dimensionless boxsize
+# sys.argv[2] is now interpreted as a desired number of bins
+# x^sys.argv[2] = 10^4 --> x = pow(10^4, 1.0/sys.argv[2])
+binbase = pow(10^4, 1.0/float(sys.argv[2]))
+binright = pow(binbase, i)
 
 for line in open("./tpmfp/tpmfp_sorted", "rt"):
     (r, error) = [t(s) for t,s in zip((float, float), line.split())]
-
-    if r > i*float(sys.argv[2]):
+    
+    if r > binright:
         N = len(stack)
         sum = 0.0
         while len(stack) > 0:
             sum += float(stack.pop())
         
+        bincen = math.sqrt(binright * pow(binbase, i-1))
         if N > 0:
             # Record the RMS
             # Binned radius is a midpoint
-            binned.write("%f %f\n" % ( (i - 1)*float(sys.argv[2]) + 0.5*float(sys.argv[2]), math.sqrt(sum*sum/(N*N))))
+            binned.write("%f %f\n" % (bincen, math.sqrt(sum*sum/(N*N))))
         else:
-            print "Read r = %f, which exceeds %f, fast forwarding..." % (r, float(sys.argv[2])*i)
-            binned.write("%f %f\n" % ( (i - 1)*float(sys.argv[2]) + 0.5*float(sys.argv[2]), 0))
+            print "Read r = %f, which exceeds %f, fast forwarding..." % (r, binright)
+            binned.write("%f %f\n" % (bincen, 0))
 
         # Now fast forward because we need to put our current error somewhere
-        while r > i*float(sys.argv[2]):
+        while r > binright:
             i += 1
+            binright = pow(binbase, i)
+
         stack.append(error)
     else:
-        print "Pushing %f" % error
         stack.append(error)
 
 binned.close()

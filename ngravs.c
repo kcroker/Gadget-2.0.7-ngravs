@@ -843,8 +843,8 @@ double pgyukawa(double target, double source, double k2, double k, long N) {
 
 double normed_pgyukawa(double target, double source, double k2, double k, long N) {
 
-  double ym = (PMGRID)*YUKAWA_IMASS/(2.0*NGRAVS_EN);
-  return k2 / (k2 + ym*ym);
+    double ym = (PMGRID/2.0)*YUKAWA_IMASS/(2.0*NGRAVS_EN);
+    return k2 / (k2 + ym*ym);
 }
 
 /*! This function computes the Madelung constant for the yukawa potential
@@ -1029,16 +1029,22 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 
   	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
 
-	  // BEWARE POSSIBLE ILL CONDITIONING!
+  	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
+  	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
   	  val = 0.5*( exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) +
   		      exp(-ym*r)*erfc(alpha*r - ym/(2*alpha)));
 	  
-  	  val += r * (0.5*ym*(-exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) +
-			     exp(-ym*r)*erfc(alpha*r - ym/(2*alpha))) +
-		     2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI) * (NGRAVS_EN * 2));
-	  
-	  for(i = 0; i < 3; i++)
+  	  for(i = 0; i < 3; i++)
   	    force[i] -= dx[i] / (r * r * r) * val;
+
+  	  val = 0.5*ym*(-exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) +
+			exp(-ym*r)*erfc(alpha*r - ym/(2*alpha))) +
+  	    2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI);
+
+  	  // KC 11/16/15
+  	  // Note that these terms enter with one less radial power in the denominator
+  	  for(i = 0; i < 3; i++)
+  	    force[i] -= dx[i] / (r * r) * val;
   	}
 
   // KC 12/4/14
