@@ -33,7 +33,7 @@
 #define YUKAWA_ALPHA 1
 
 #ifdef PERIODIC
-#define YUKAWA_IMASS (4e-5) // Should be given in dimensionless fraction of the boxsize
+#define YUKAWA_IMASS (5.0/(double)NGRAVS_EN) // This is (1/e)^5 suppression at All.BoxSize/NGRAVS_EN 
 #else
 #define YUKAWA_IMASS (1e2/All.BoxSize) // Otherwise, do it in terms of normal units
 #endif
@@ -119,6 +119,7 @@ void wire_grav_maps(void) {
       // for a source at the origin
 #ifdef PMGRID
       GreensFxns[i][j] = pgdelta;
+      NormedGreensFxns[i][j] = pgdelta;
 #endif
 
       // KC 11/25/14
@@ -819,7 +820,9 @@ double yukawa(double target, double source, double h, double r, long N) {
 #if defined PERIODIC
 
   // Because, by fac_intp: r = L*u/(2EN)
-  ym = 2*NGRAVS_EN*YUKAWA_IMASS/All.BoxSize;
+  ym = 2*NGRAVS_EN*YUKAWA_IMASS/All.BoxSize;  //(WORKS, BUT ILL CONDITIONS)
+  //ym = YUKAWA_IMASS/All.BoxSize;
+  // The r that is sent to 
   return source * YUKAWA_ALPHA * exp(-r*ym) * (ym/r + 1.0/h);
 #else
   return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS/r + 1.0/h);
@@ -834,17 +837,34 @@ double pgyukawa(double target, double source, double k2, double k, long N) {
   // Since we keep the factor of 1/k2 in the pm_periodic.c computation, our modulation must be dimensionless.
   // Since pmforce_periodic uses units of k \in [-PMGRID/2, PMGRID/2], we must convert from dimensionless 
   // lattice tabulation units into dimensionless mesh units.
-  double ym = PMGRID*YUKAWA_IMASS/(2.0*NGRAVS_EN);
+
+  //
+  // YUKAWA_IMASS requires 2*NGRAVS_EN to make its product with a [0, 1/2] ranged quantity
+  // into the full octant range of [0, NGRAVS_EN]
+  //
+  // If the right endpoint is at NGRAVS_EN, here it should be at PMGRID/2 
+  double ym = 2*PMGRID*YUKAWA_IMASS/((double)NGRAVS_EN);
 
   // The expression in pm_periodic.c has an overall factor of 1/M_PI
   // Perhaps we want exactly ym*ym...
-  return 1.0 / (k2 + ym*ym);
+  return 1.0 / (k2 + ym*ym/(4*M_PI));
 }
 
 double normed_pgyukawa(double target, double source, double k2, double k, long N) {
 
-    double ym = (PMGRID/2.0)*YUKAWA_IMASS/(2.0*NGRAVS_EN);
-    return k2 / (k2 + ym*ym);
+  //
+  // KC 11/26/15
+  // The de-dimensionalized wrt MESH CELLS in PMGRID value must 
+  // equate to the correct magnitude here.
+  //
+  // From pm_periodic:825 (2 * M_PI) * ASMTH / PMGRID
+  // From forcetree.c:3281 1/2
+  //
+  
+  double pm2ng = 0.5*PMGRID/(2*M_PI*ASMTH);
+  double ym = pm2ng*(YUKAWA_IMASS/((double)NGRAVS_EN));
+
+  return pm2ng*pm2ng*k2 / (pm2ng*pm2ng*k2 + ym*ym/(4*M_PI));
 }
 
 /*! This function computes the Madelung constant for the yukawa potential
@@ -987,6 +1007,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   double r, val, hdotx, dx[3];
   int i, h[3], n[3], h2;
   double ym;
+  double fac;
 
   // KC 11/16/15
   // Note our use of Salin's optimal 'alpha', and our excessive momentum-space
@@ -1001,6 +1022,13 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
   r = sqrt(r2);
 
+  //
+  //
+  // This should never have been called r, but instead u.
+  // Its takes values in [0, 0.5], and moves within the corner
+  // octant of one unit cell.
+  //
+
   // KC 11/16/15
   // Here we add in the original force, with the displacement vector
   // normalization included. 
@@ -1013,13 +1041,29 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   ym = YUKAWA_IMASS*NGRAVS_EN*2;
 
   for(i = 0; i < 3; i++)
-    force[i] += YUKAWA_ALPHA * exp(-r*ym) * (ym / r2 + 1.0/(r2*r)) * x[i]; 
+    force[i] += YUKAWA_ALPHA * exp(-r*ym) * (ym + 1.0/r) * x[i]/r2; 
 
 #ifndef NGRAVS_DEBUG_UNITS_CHECK
   // KC 12/4/14
   // Looks like this takes the first four images out in position space in each direction (so
   // bracketing by 8 overall)
   
+  // KC 11/23/15
+  // Since r2,r come from x[] above and these require factors of NGRAVS_EN*2 to work properly
+  //   and since the r below is computed with these same units
+  //   (dot triangle) the r's below must also have the NGRAVS_EN*2 to work properly
+  //
+  // This factor rescales r to [0, NGRAVS_EN]
+  //
+  // From the previous examples, alpha and r occurred unmolested. and r takes values in [0, 1/2] 
+  //
+  // So, the factor can go on the mass, or it can go on the r.  If we leave alpha*r unchanged, then
+  // it goes on the mass.  
+  //
+  // I think this problem is ill conditioned with integer-values here
+  //
+  // 
+
   for(n[0] = -5; n[0] <= 5; n[0]++)
     for(n[1] = -5; n[1] <= 5; n[1]++)
       for(n[2] = -5; n[2] <= 5; n[2]++)
@@ -1029,18 +1073,37 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 
   	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
 
+	  // Now, here comes the rub.
+	  // r ~ 4*Nmax = 20
+	  // ym ~ NGRAVS_EN
+	  //
+
   	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
   	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
-  	  val = 0.5*( exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) +
-  		      exp(-ym*r)*erfc(alpha*r - ym/(2*alpha)));
+  	  
+	  // 0.5*(A + B) eventually /r^3
+	  //val = 0.5*( exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) +
+  	  //	      exp(-ym*r)*erfc(alpha*r - ym/(2*alpha)));
+
+	  // 0.5*(A + C*r) eventually /r^3
+	  val = 0.5*erfc(alpha*r - ym/(2*alpha))*exp(-ym*r)*(1 + ym*r);
+	  
+	  if(ym*r < 200)
+	    val += 0.5*erfc(alpha*r + ym/(2*alpha))*exp(ym*r)*(1 - ym*r);
+	  
+	  // 0.5*(B + D*r) eventually /r^3
 	  
   	  for(i = 0; i < 3; i++)
   	    force[i] -= dx[i] / (r * r * r) * val;
 
-  	  val = 0.5*ym*(-exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) +
-			exp(-ym*r)*erfc(alpha*r - ym/(2*alpha))) +
-  	    2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI);
+	  // Now E
+	  val = 2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI);
 
+	  // 0.5*ym*(C + D) + E eventually /r^2
+  	  /* val = 0.5*ym*(-exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) + */
+	  /* 		exp(-ym*r)*erfc(alpha*r - ym/(2*alpha))) + */
+  	  /*   2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI); */
+	  
   	  // KC 11/16/15
   	  // Note that these terms enter with one less radial power in the denominator
   	  for(i = 0; i < 3; i++)
@@ -1066,7 +1129,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 	    //	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
 	    val = 2*M_PI*exp(-(4*M_PI*M_PI*h2 + ym*ym)/(4*alpha*alpha))*sin(2*M_PI*hdotx) /
 	      (M_PI*h2 + ym*ym/(4*M_PI));
-	      
+
 	    for(i = 0; i < 3; i++)
 	      force[i] -= h[i] * val;
 	  }

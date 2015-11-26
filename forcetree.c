@@ -45,10 +45,10 @@ static int first_flag = 0;
 /*! 3D lock-up table for Lattice sum correction to force and potential. Only one
  *  octant is stored, the rest constructed by using the symmetry
  */
-static FLOAT fcorrx[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
-static FLOAT fcorry[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
-static FLOAT fcorrz[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
-static FLOAT potcorr[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
+static double fcorrx[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
+static double fcorry[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
+static double fcorrz[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
+static double potcorr[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
 static double fac_intp;
 #endif
 
@@ -3185,6 +3185,8 @@ void force_treeallocate(int maxnodes, int maxpart)
   char buf[512];
   FILE *fhand = NULL;
   int skipWrite = 0;
+
+  double utor2wpi, asmthfac;
 #endif
 
   MaxNodes = maxnodes;
@@ -3288,32 +3290,32 @@ void force_treeallocate(int maxnodes, int maxpart)
 	  }
 
 #if defined NGRAVS_TREEPM_XITION_CHECK
-	    if(!ThisTask) {
+	  if(!ThisTask) {
 
-	      // Don't write out the same data twice
-	      // (but always write it out once per run)
-	      for(i = 0; i < nA * nB; ++i) {
-	      	if(!strncmp(*(&NgravsNames[0][0] + i), NgravsNames[nB][nA], 100)) {
-	      	  skipWrite = 1;
-	      	  break;
-	      	}
-	      }
-	      
-	      if(!skipWrite) {
-		printf("ngravs: %s\n", NgravsNames[nB][nA]);
-		snprintf(buf, 512, "%s/ngravs_tpm_%s_l%d_ol%d.txt", 
-			 All.OutputDir, 
-			 NgravsNames[nB][nA], 
-			 ngravsPeriodicTable->len,
-			 ngravsPeriodicTable->ol);
-		fhand = fopen(buf, "w+t");
-	      
-		if(!fhand) {
-		  printf("ngravs: could not open %s for writing!\n", buf);
-		  endrun(1014);
-		}
+	    // Don't write out the same data twice
+	    // (but always write it out once per run)
+	    for(i = 0; i < nA * nB; ++i) {
+	      if(!strncmp(*(&NgravsNames[0][0] + i), NgravsNames[nB][nA], 100)) {
+		skipWrite = 1;
+		break;
 	      }
 	    }
+	    
+	    if(!skipWrite && !ThisTask) {
+	      printf("ngravs: %s\n", NgravsNames[nB][nA]);
+	      snprintf(buf, 512, "%s/ngravs_tpm_%s_l%d_ol%d.txt", 
+		       All.OutputDir, 
+		       NgravsNames[nB][nA], 
+		       ngravsPeriodicTable->len,
+		       ngravsPeriodicTable->ol);
+	      fhand = fopen(buf, "w+t");
+	      
+	      if(!fhand) {
+		printf("ngravs: could not open %s for writing!\n", buf);
+		endrun(1014);
+	      }
+	    }
+	  }
 #endif	  
 	  // pot and force arrays don't yet contain the appropriate correction factors.  
 	  // Here we make the adjustments
@@ -3321,9 +3323,9 @@ void force_treeallocate(int maxnodes, int maxpart)
 	    
 	    // Stock, forcetree.c:2679
 	    u = 3.0 / NTAB * (i + 0.5);
-
+	    
 #if defined NGRAVS_TREEPM_XITION_CHECK
-	    if(!skipWrite && !ThisTask)
+	    if(!ThisTask && !skipWrite)
 	      fprintf(fhand, "%.15e %.15e %.15e\n", 
 		      u,
 		      shortrange_fourier_pot[nB][nA][i],
@@ -3336,7 +3338,36 @@ void force_treeallocate(int maxnodes, int maxpart)
 	    // Precompute buddy!
 	    shortrange_fourier_force[nB][nA][i] -= shortrange_fourier_pot[nB][nA][i];
 	  }
-	
+	  
+#if defined NGRAVS_DEBUG_FORCETRACE && defined NGRAVS_TREEPM_XITION_CHECK	
+
+	  // Here we dump out the untruncated force and its truncated value
+	  if(!ThisTask && !skipWrite) {
+	    fprintf(fhand, "\n# Begin debug forcetrace output\n# All.Asmth[0]: %f\n", All.Asmth[0]);
+
+	    utor2wpi = 1.0/(M_PI*4*All.Asmth[0]*All.Asmth[0]);
+	    asmthfac = 0.5 / All.Asmth[0] * (NTAB / 3.0);
+
+	    for(i = 0; i < NTAB; ++i) {
+	      
+	      // Stock, forcetree.c:2679
+	      r = (double)i / asmthfac;  //u = 3.0 / NTAB * (i + 0.5);
+	    
+	      fprintf(fhand, "%.15e %.15e %.15e\n", 
+		      r,
+		      (*AccelFxns[nB][nA])(1.0, 1.0, r*r, r, 1),
+		      (*AccelFxns[nB][nA])(1.0, 1.0, r*r, r, 1) - utor2wpi * shortrange_fourier_force[nB][nA][i]);
+	    }
+
+	    // Now continue with just the force (with 100 more samples)
+	    for(; r < All.BoxSize*0.5; r += All.BoxSize*0.005)  
+	      fprintf(fhand, "%.15e %.15e %.15e\n", 
+		      r,
+		      (*AccelFxns[nB][nA])(1.0, 1.0, r*r, r, 1),
+		      0.0);
+	  }
+#endif
+
 #if defined NGRAVS_TREEPM_XITION_CHECK
 	  skipWrite = 0;
 	  if(fhand) {
@@ -3346,6 +3377,8 @@ void force_treeallocate(int maxnodes, int maxpart)
 #endif
 	}
       }
+
+      endrun(5678);
 
       // Cleanup
       ngravsConvolutionFree(ngravsPeriodicTable);

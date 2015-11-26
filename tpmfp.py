@@ -50,11 +50,17 @@ if not len(sys.argv) > 3:
     for i in range(int(sys.argv[1])):
 
         # Use this as the merge
-        os.system("g2munge - rand 9999 10000 2.5e-4 1 2 > ./tpmfp/tpmfp_tests")
+        os.system("g2munge - rand 4999 10000 2.5e-4 1 2 > ./tpmfp/tpmfp_tests")
     
         # Create an IC containing one very heavy particle randomly
         os.system("g2munge - rand 1 10000 1.0 1 1 | g2munge - merge ./tpmfp/tpmfp_tests > ./tpmfp/tpmfp_IC")
 
+        # The above code does not probe sufficiently densly around the source mass.
+        # So what we really need to do is write a g2munge function "wrap"
+        # that takes an initial condition and wraps every coordinate to the BoxSize
+        # We can then use the previous IC construction with xlate and wrap to 
+        # get the arbitrary center.
+        
         os.system("mpirun -n 2 ./Gadget2 Configuration.tpmfp")
 
         # Stash it
@@ -169,7 +175,7 @@ for line in open("./tpmfp/tpmfp_sorted", "rt"):
         if N > 0:
             # Record the RMS
             # Binned radius is a midpoint
-            binned.write("%f %f\n" % (bincen, math.sqrt(sum*sum/(N*N))))
+            binned.write("%f %f\n" % (bincen, sum/N))
         else:
             print "Read r = %f, which exceeds %f, fast forwarding..." % (r, binright)
             binned.write("%f %f\n" % (bincen, 0))
