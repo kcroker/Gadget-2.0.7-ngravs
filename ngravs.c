@@ -33,10 +33,12 @@
 #define YUKAWA_ALPHA 1
 
 #ifdef PERIODIC
-#define YUKAWA_IMASS (5.0/(double)NGRAVS_EN) // This is (1/e)^5 suppression at All.BoxSize/NGRAVS_EN 
+#define YUKAWA_IMASS (25.0 /* /(double)NGRAVS_EN */) // This is (1/e)^5 suppression at All.BoxSize/NGRAVS_EN 
 #else
 #define YUKAWA_IMASS (1e2/All.BoxSize) // Otherwise, do it in terms of normal units
 #endif
+
+struct ngravsInterpolant *ngravsPeriodicTable;
 
 
 /*! This function must be modified to point to your desired
@@ -812,17 +814,11 @@ double ewald_psi(double x[3])
 double yukawa(double target, double source, double h, double r, long N) {
   
   double ym;
-  // Uhh..
-  // In limit where YUKAWA_IMASS -> 0, this has to become newton.  It does if there is no stupid prefactor.
-  // YUKAWA_IMASS scales values in [0, 0.5], here we need to scale values in [0, 1], so we need a factor of 2.
-  //   this is hard.
-  //
 #if defined PERIODIC
 
-  // Because, by fac_intp: r = L*u/(2EN)
-  ym = 2*NGRAVS_EN*YUKAWA_IMASS/All.BoxSize;  //(WORKS, BUT ILL CONDITIONS)
-  //ym = YUKAWA_IMASS/All.BoxSize;
-  // The r that is sent to 
+  // There is no two: r \in [0, BoxSize/2] already
+  // CONFIRMED
+  ym = YUKAWA_IMASS/All.BoxSize;  
   return source * YUKAWA_ALPHA * exp(-r*ym) * (ym/r + 1.0/h);
 #else
   return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS/r + 1.0/h);
@@ -843,28 +839,28 @@ double pgyukawa(double target, double source, double k2, double k, long N) {
   // into the full octant range of [0, NGRAVS_EN]
   //
   // If the right endpoint is at NGRAVS_EN, here it should be at PMGRID/2 
-  double ym = 2*PMGRID*YUKAWA_IMASS/((double)NGRAVS_EN);
+  double ym = PMGRID*YUKAWA_IMASS/(2*M_PI);
 
   // The expression in pm_periodic.c has an overall factor of 1/M_PI
   // Perhaps we want exactly ym*ym...
-  return 1.0 / (k2 + ym*ym/(4*M_PI));
+  return 1.0 / (k2 + ym*ym);
 }
 
 double normed_pgyukawa(double target, double source, double k2, double k, long N) {
 
+  // The k used in this function has nothing to do with the k used
+  // in Gadget2.  Converting between them is non-trivial:
   //
-  // KC 11/26/15
-  // The de-dimensionalized wrt MESH CELLS in PMGRID value must 
-  // equate to the correct magnitude here.
-  //
-  // From pm_periodic:825 (2 * M_PI) * ASMTH / PMGRID
-  // From forcetree.c:3281 1/2
-  //
+  // 1) gadgetToFourier(NTAB) will give the uppermost distance scale, in terms of integer Interpolator units.
+  // 2) jTok() of this quantity will give the k in Interpolator units
+  // 3) We know the mesh scale tabulation cutoff: u = (3 + 2/3 * NTAB)*ASMTH
   
-  double pm2ng = 0.5*PMGRID/(2*M_PI*ASMTH);
-  double ym = pm2ng*(YUKAWA_IMASS/((double)NGRAVS_EN));
+  // This is Interp-k / PMGRID
+  double interp2pm = jTok(gadgetToFourier(NTAB, ngravsPeriodicTable), 0.5, ngravsPeriodicTable) / (ASMTH*(3 + 2.0/(3.0 * NTAB)));
+  double ym = YUKAWA_IMASS/interp2pm/PMGRID;
+  fprintf(stderr, "%.15e %.15e %.15e\n", k, ym, k2/(k2 + ym*ym));
 
-  return pm2ng*pm2ng*k2 / (pm2ng*pm2ng*k2 + ym*ym/(4*M_PI));
+  return k2 / (k2 + ym*ym);
 }
 
 /*! This function computes the Madelung constant for the yukawa potential
@@ -1038,8 +1034,9 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   //   Below is what was required to make the computed force with a call to yukawa()
   //   equal to that computed here, with the distinct units on each.
   //
-  ym = YUKAWA_IMASS*NGRAVS_EN*2;
-
+  ym = YUKAWA_IMASS;
+  // r is in dimensionless octant coordinates [0, 1/2]
+  //
   for(i = 0; i < 3; i++)
     force[i] += YUKAWA_ALPHA * exp(-r*ym) * (ym + 1.0/r) * x[i]/r2; 
 
@@ -1073,11 +1070,6 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 
   	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
 
-	  // Now, here comes the rub.
-	  // r ~ 4*Nmax = 20
-	  // ym ~ NGRAVS_EN
-	  //
-
   	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
   	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
   	  
@@ -1087,9 +1079,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 
 	  // 0.5*(A + C*r) eventually /r^3
 	  val = 0.5*erfc(alpha*r - ym/(2*alpha))*exp(-ym*r)*(1 + ym*r);
-	  
-	  if(ym*r < 200)
-	    val += 0.5*erfc(alpha*r + ym/(2*alpha))*exp(ym*r)*(1 - ym*r);
+	  val += 0.5*erfc(alpha*r + ym/(2*alpha))*exp(ym*r)*(1 - ym*r);
 	  
 	  // 0.5*(B + D*r) eventually /r^3
 	  
@@ -1227,6 +1217,61 @@ void ewald_force(int iii, int jjj, int kkk, double x[3], double force[3])
 //
 /////////////////////////////////////////////////////////////////////////
 
+double normKtoGridK(double normk) {
+
+  // See comments below for gridKtoNormK
+  return All.BoxSize * normk / (4*M_PI*All.Asmth[0]);
+}
+
+double gridKtoNormK(double gridk) {
+
+  // Since the correct coefficient for normk exponential suppression
+  // is 1/2 (at least in the Newtonian case, but this should not change)
+  // but that for gridk is (2 * M_PI) * All.Asmth[0] / All.BoxSize
+  // this is the conversion
+
+  return 4*M_PI*All.Asmth[0] * gridk / All.BoxSize;
+}
+
+void kConversionUnitTest(void) {
+
+#if defined NGRAVS_KUNIT_TEST
+  double k, normk, gridk, asmthfac2, normkexpr, gridkexpr;
+  int i;
+
+  // First verify normk expression units (in 1000 increments)
+  fprintf(stderr, "# kConversionTest, PMGRID MESH CELL UNITS\n");
+  asmthfac2 = 2*M_PI*All.Asmth[0] / All.BoxSize;
+  asmthfac2 *= asmthfac2;
+
+  for(k = -PMGRID/2.0; k < PMGRID/2.0; k += PMGRID/1000.0) {
+
+    normk = gridKtoNormK(k);
+    gridkexpr = exp(-k*k*asmthfac2)*(*GreensFxns[0][0])(1.0, 1.0, k*k, k, 1);
+    normkexpr = fourierIntegrand(normk, NormedGreensFxns[0][0], 0.5)/(normk*normk);
+    
+    fprintf(stderr, "%.15e %.15e %.15e\n", k, gridkexpr, normkexpr);
+  }
+
+  fprintf(stderr, "\n# kConversionTest, INTERPOLATION UNITS\n");
+
+  i = 0;
+  k = jTok(gadgetToFourier(i, ngravsPeriodicTable), 0.5, ngravsPeriodicTable); 
+
+  while(k < jTok(gadgetToFourier(NTAB, ngravsPeriodicTable), 0.5, ngravsPeriodicTable)) {
+
+    gridk = normKtoGridK(k);
+    normkexpr = fourierIntegrand(k, NormedGreensFxns[0][0], 0.5)/(k*k);
+    gridkexpr = exp(-gridk*gridk*asmthfac2)*(*GreensFxns[0][0])(1.0, 1.0, gridk*gridk, gridk, 1);
+    
+    fprintf(stderr, "%.15e %.15e %.15e\n", k, gridkexpr, normkexpr);
+    k = jTok(gadgetToFourier(++i, ngravsPeriodicTable), 0.5, ngravsPeriodicTable); 
+  }
+
+  //  endrun(6789);
+#endif
+}
+
 ///////////////// BEGIN FOURIER INTEGRATION ROUTINES /////////////////////
 //
 // These routines can compute the reqired shortrange tabulations of the generic
@@ -1250,6 +1295,9 @@ void ewald_force(int iii, int jjj, int kkk, double x[3], double force[3])
 
 // Note: the product of mTox * jTok = 2\pi mj/N_G
 //       which is what FFTW expects
+
+
+
 FLOAT jTok(int m, double Z, struct ngravsInterpolant *s) {
 
   return 2.0 * M_PI * m * s->ntab * 6.0 * s->ol/(3.0 * s->ngravs_tpm_n);
@@ -1294,7 +1342,11 @@ int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z,
   fftw_complex *in, *out;
   int m,j;
   double sum, norm;
- 
+
+  // KC 12/3/15
+  // Run the debug
+  kConversionUnitTest();
+
   in = (fftw_complex *)malloc(sizeof(fftw_complex) * s->ngravs_tpm_n);
   out = (fftw_complex *)malloc(sizeof(fftw_complex) * s->ngravs_tpm_n);
   if(!in || !out)

@@ -31,6 +31,7 @@ static int last;
 // Note that we use FLOAT here because if the FFTW routines expect the wrong width, 
 // you're going to have a bad time
 static FLOAT shortrange_fourier_pot[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_force[N_GRAVS][N_GRAVS][NTAB];
+extern struct ngravsInterpolant *ngravsPeriodicTable;
 #endif
 
 /*! toggles after first tree-memory allocation, has only influence on log-files */
@@ -3177,7 +3178,6 @@ void force_treeallocate(int maxnodes, int maxpart)
 #ifdef PMGRID
   // KC 27.9.15
   FLOAT u;
-  struct ngravsInterpolant *ngravsPeriodicTable;
   int nA, nB;
   double r;
   FLOAT Z;
@@ -3264,7 +3264,7 @@ void force_treeallocate(int maxnodes, int maxpart)
       // Anything above this is oversampling, because the integrand MUST be zero as far as the machine is concerned
       // (because the normalized greens is bounded above by 1).
       //
-      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 4, 5);
+      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 1/*4*/, 1/*5*/);
       Z = 0.5; 
 
       if(!ThisTask)
@@ -3378,7 +3378,7 @@ void force_treeallocate(int maxnodes, int maxpart)
 	}
       }
 
-      endrun(5678);
+      //endrun(5678);
 
       // Cleanup
       ngravsConvolutionFree(ngravsPeriodicTable);
@@ -3755,6 +3755,7 @@ void lattice_init(void)
 	      // AccelFxns does not.
 	      // Check for sanity in the force and lattice tables (only works if you disable the lattice correction part of 
 	      // the lattice computation).  The the tabulated value and the computed value should be the same, roughly.
+	      //
 	      if(!ThisTask) {
 		r2 = (i*i + j*j + k*k)/((double)fac_intp*fac_intp);	
 		if(r2 > 10) {

@@ -68,6 +68,11 @@ int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z,
 struct ngravsInterpolant *ngravsConvolutionInit(int ntab, int len, int ol);
 void ngravsConvolutionFree(struct ngravsInterpolant *s);
 FLOAT mTox(int m, struct ngravsInterpolant *s);
+FLOAT jTok(int m, double Z, struct ngravsInterpolant *s);
+double normKtoGridK(double normk);
+double gridKtoNormK(double gridk);
+void kConversionUnitTest(void);
+FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z);
 
 // Initialization functions for ngravs extension
 void wire_grav_maps(void);
