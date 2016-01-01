@@ -240,7 +240,7 @@ void pmforce_periodic(void)
   fac *= 1 / (2 * All.BoxSize / PMGRID);	/* for finite differencing */
 
   // KC 10/20/14
-  // Determine the ranges outside the main loop!?
+  // Determine the ranges outside the main loop!? (yes)
   /* first, establish the extension of the local patch in the PMGRID  */
   for(j = 0; j < 3; j++)
     {
@@ -260,6 +260,8 @@ void pmforce_periodic(void)
     for(j = 0; j < 3; j++)
       {
 	// Clear this out before we start accumulating
+	// KC 12/29/15
+	// This should not be required, since these things are cleared in init.c, longrange.c
 	P[i].GravPM[j] = 0;
 
 	slab = to_slab_fac * P[i].Pos[j];
@@ -1028,39 +1030,40 @@ void pmpotential_periodic(void)
 
 	      k2 = kx * kx + ky * ky + kz * kz;
 
-	      if(k2 > 0)
+	      // KC 12/31/15
+	      // Always include k2==0 now, in general we may have finite power in k=0...
+	      smth = -exp(-k2 * asmth2) * (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1) * fac;
+	      /* do deconvolution */
+	      fx = fy = fz = 1;
+	      if(kx != 0)
 		{
-		  // KC 10/5/14
-		  smth = -exp(-k2 * asmth2) * (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1) * fac / k2;
-		  /* do deconvolution */
-		  fx = fy = fz = 1;
-		  if(kx != 0)
-		    {
-		      fx = (M_PI * kx) / PMGRID;
-		      fx = sin(fx) / fx;
-		    }
-		  if(ky != 0)
-		    {
-		      fy = (M_PI * ky) / PMGRID;
-		      fy = sin(fy) / fy;
-		    }
-		  if(kz != 0)
-		    {
-		      fz = (M_PI * kz) / PMGRID;
-		      fz = sin(fz) / fz;
-		    }
-		  ff = 1 / (fx * fy * fz);
-		  smth *= ff * ff * ff * ff;
-		  /* end deconvolution */
-
-		  ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-		  fft_of_rhogrid[ip].re *= smth;
-		  fft_of_rhogrid[ip].im *= smth;
+		  fx = (M_PI * kx) / PMGRID;
+		  fx = sin(fx) / fx;
 		}
+	      if(ky != 0)
+		{
+		  fy = (M_PI * ky) / PMGRID;
+		  fy = sin(fy) / fy;
+		}
+	      if(kz != 0)
+		{
+		  fz = (M_PI * kz) / PMGRID;
+		  fz = sin(fz) / fz;
+		}
+	      ff = 1 / (fx * fy * fz);
+	      smth *= ff * ff * ff * ff;
+	      /* end deconvolution */
+
+	      ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+	      fft_of_rhogrid[ip].re *= smth;
+	      fft_of_rhogrid[ip].im *= smth;
 	    }
 
+      // 12/31/15
+      // XXX?
+      // This looks like a check to set the DC power to zero....
       if(slabstart_y == 0)
-	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
+      	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
 
       /* Do the FFT to get the potential */
 

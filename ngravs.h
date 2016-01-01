@@ -34,6 +34,7 @@ double yukawa(double target, double source, double h, double r, long N);
 double newtonKGreen(double target, double source, double k2, double k, long N);
 double pgdelta(double target, double source, double k2, double k, long N);
 double neg_pgdelta(double target, double source, double k2, double k, long N); 
+double normed_pgdelta(double target, double source, double k2, double k, long N);
 double pgyukawa(double target, double source, double k2, double k, long N); 
 
 // (Periodic) Normed Greens functions

@@ -36,7 +36,7 @@ if not os.path.exists("tpmfp"):
    os.mkdir("tpmfp")
 
 if len(sys.argv) < 3:
-    print "Usage: %s <# times> <bin width> [skip sim?]" % sys.argv[0]
+    print "Usage: %s <# times> <# bins> [skip sim?]" % sys.argv[0]
     exit(1)
 
 
@@ -163,31 +163,35 @@ binbase = pow(10^4, 1.0/float(sys.argv[2]))
 binright = pow(binbase, i)
 
 for line in open("./tpmfp/tpmfp_sorted", "rt"):
+    # Run the anonymous function (float, float) with the split line
     (r, error) = [t(s) for t,s in zip((float, float), line.split())]
-    
+
+    # Does it belong in a later bin?
     if r > binright:
-        N = len(stack)
-        sum = 0.0
-        while len(stack) > 0:
-            sum += float(stack.pop())
         
-        bincen = math.sqrt(binright * pow(binbase, i-1))
+        # How many are we waiting to pop?
+        N = len(stack)
+        
+        # If we had things, that means we just advanced into a new bin
         if N > 0:
             # Record the RMS
             # Binned radius is a midpoint
+            sum = 0.0
+            while len(stack) > 0:
+                sum += float(stack.pop())
+            
+            # Stack is now empty
+            bincen = math.sqrt(binright * pow(binbase, i-1))
             binned.write("%f %f\n" % (bincen, sum/N))
         else:
-            print "Read r = %f, which exceeds %f, fast forwarding..." % (r, binright)
-            binned.write("%f %f\n" % (bincen, 0))
-
-        # Now fast forward because we need to put our current error somewhere
-        while r > binright:
-            i += 1
-            binright = pow(binbase, i)
-
-        stack.append(error)
-    else:
-        stack.append(error)
+            # If we don't have things, that means the previous bin is empty
+            while r > binright:
+                bincen = math.sqrt(binright * pow(binbase, i-1))
+                binned.write("%f %f\n" % (bincen, 0))
+                i += 1
+                binright = pow(binbase, i)
+    
+    stack.append(error)
 
 binned.close()
 print "Output binned!"
