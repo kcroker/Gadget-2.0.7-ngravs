@@ -528,7 +528,7 @@ void pmforce_periodic(void)
       /* Do the FFT to get the potential */
       rfftwnd_mpi(fft_inverse_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
 
-      /* Now rhog rid holds the potential */
+      /* Now rhogrid holds the potential */
       /* construct the potential for the local patch */
       dimx = meshmax[0] - meshmin[0] + 6;
       dimy = meshmax[1] - meshmin[1] + 6;

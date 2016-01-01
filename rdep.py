@@ -38,7 +38,7 @@ N = N + (N % 2)
 
 label = sys.argv[3]
 testm = 1.0
-cenm = 1.0e6
+cenm = 1.0e3
 
 random.seed()
 

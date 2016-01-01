@@ -34,7 +34,9 @@
 
 #ifdef PERIODIC
 // Make sure to use a decimal here
-#define YUKAWA_IMASS 30.0
+#ifndef YUKAWA_IMASS
+#define YUKAWA_IMASS 60.0
+#endif
 //
 // 1/YUKAWA_IMASS sets the suppression *length* scale wrt 1/2 box length
 //
@@ -1056,7 +1058,7 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   	    dx[i] = x[i] - n[i];
 
   	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
-
+	  
   	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
   	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
   	  
@@ -1223,6 +1225,8 @@ double gridKtoNormK(double gridk) {
   // this is the conversion
 
   return 4*M_PI*All.Asmth[0] * gridk / All.BoxSize;
+  
+
 }
 
 void kConversionUnitTest(void) {

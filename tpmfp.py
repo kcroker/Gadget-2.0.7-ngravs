@@ -160,7 +160,11 @@ i = 1
 # sys.argv[2] is now interpreted as a desired number of bins
 # x^sys.argv[2] = 10^4 --> x = pow(10^4, 1.0/sys.argv[2])
 binbase = pow(10^4, 1.0/float(sys.argv[2]))
-binright = pow(binbase, i)
+binrights = [pow(binbase, i) for i in range(0, int(sys.argv[2]))]
+
+# Uhh, just generate a list of the binrights, and then go down the file
+# and accumulate them...
+
 
 for line in open("./tpmfp/tpmfp_sorted", "rt"):
     # Run the anonymous function (float, float) with the split line
