@@ -518,8 +518,10 @@ void pmforce_periodic(void)
 	      fft_of_rhogrid[ip].im *= smth;
 	    }
       
-      if(slabstart_y == 0)
-	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
+      // KC 1/1/16
+      // XXX We must modify this check!!  So if k = 0 power is nan, then we do this
+      // if(slabstart_y == 0)
+      //	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
 
       // KC 10/5/14 
       // This will produce the potential in real space
@@ -1060,10 +1062,11 @@ void pmpotential_periodic(void)
 	    }
 
       // 12/31/15
-      // XXX?
+      // XXX!  Need to be adjusted to check for nan.  If so, then do this.  Otherwise, 
+      // we need the DC power.
       // This looks like a check to set the DC power to zero....
-      if(slabstart_y == 0)
-      	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
+      /* if(slabstart_y == 0) */
+      /* 	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0; */
 
       /* Do the FFT to get the potential */
 
