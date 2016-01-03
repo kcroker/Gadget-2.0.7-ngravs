@@ -1825,7 +1825,7 @@ int force_treeevaluate_shortrange(int target, int mode)
 	  }
 	
 	  sG = -1;
-
+	  
 	  if(r2min > rcut2)
 	    {
 	      /* check whether we can stop walking along this branch */
@@ -1958,7 +1958,7 @@ int force_treeevaluate_shortrange(int target, int mode)
 
       if(sG > -1) {
 
-	 r = sqrt(r2[sG]);
+	r = sqrt(r2[sG]);
 	 
 	 tabindex = (int) (asmthfac * r);
 	 
@@ -1989,6 +1989,8 @@ int force_treeevaluate_shortrange(int target, int mode)
 	
 	for(whichGrav = 0; whichGrav < N_GRAVS; ++whichGrav) {
 
+	  // KC 1/3/16
+	  // Skip if we were past the cutoff in this contribution....
 	  if(mass[whichGrav] == 0.0)
 	    continue;
 

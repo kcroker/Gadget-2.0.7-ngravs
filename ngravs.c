@@ -833,17 +833,8 @@ double ewald_psi(double x[3])
 double yukawa(double target, double source, double h, double r, long N) {
   
   double ym;
-#if defined PERIODIC
-
-  // There is no two: r \in [0, BoxSize/2] already
-  // CONFIRMED
-  // This is correct: the 1/All.BoxSize redimensionalizes ym
-  //
   ym = YUKAWA_IMASS/All.BoxSize;  
   return source * YUKAWA_ALPHA * exp(-r*ym) * (ym/r + 1.0/h);
-#else
-  return source * YUKAWA_ALPHA * exp(-r*YUKAWA_IMASS) * (YUKAWA_IMASS/r + 1.0/h);
-#endif
 }
 
 /*! A periodic yukawa k-space Greens function, normalized by the Newtonian interaction
@@ -857,14 +848,8 @@ double pgyukawa(double target, double source, double k2, double k, long N) {
 
 double normed_pgyukawa(double target, double source, double k2, double k, long N) {
 
-  // The k used in this function has nothing to do with the k used
-  // in Gadget2.  Converting between them is non-trivial:
-  
-  // This converts from PMGRID units into interpolated units
+  // This converts from PMGRID units into shortrange interpolation table units
   double ym = gridKtoNormK(YUKAWA_IMASS/(2*M_PI));
-
-  //  fprintf(stderr, "%.15e %.15e %.15e\n", k, ym, k2/(k2 + ym*ym));
-
   return k2 / (k2 + ym*ym);
 }
 

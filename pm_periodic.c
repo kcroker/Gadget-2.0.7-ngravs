@@ -520,8 +520,11 @@ void pmforce_periodic(void)
       
       // KC 1/1/16
       // XXX We must modify this check!!  So if k = 0 power is nan, then we do this
-      // if(slabstart_y == 0)
-      //	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
+      // The DC power doesn't matter anyway, because it will just disappear upon computation of the force
+      // (It certainly matters for the potential though!)
+      if(slabstart_y == 0)
+	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
+      //	fprintf(stderr, "DC power: (%.15e, %.15e)\n", fft_of_rhogrid[0].re, fft_of_rhogrid[0].im);
 
       // KC 10/5/14 
       // This will produce the potential in real space
