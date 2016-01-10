@@ -260,8 +260,8 @@ void pmforce_periodic(void)
     for(j = 0; j < 3; j++)
       {
 	// Clear this out before we start accumulating
-	// KC 12/29/15
-	// This should not be required, since these things are cleared in init.c, longrange.c
+	// (Prev Gadget2 just overwrote this because it performed one assignment. 
+	//  we need to accumulate over all types)
 	P[i].GravPM[j] = 0;
 
 	slab = to_slab_fac * P[i].Pos[j];
@@ -454,77 +454,73 @@ void pmforce_periodic(void)
 
 	      k2 = kx * kx + ky * ky + kz * kz;
 
-	      // KC 11/22/15
-	      // Generalized Greens functions might have finite power at zero!
 	      /* do deconvolution */
-		  
-	      fx = fy = fz = 1;
-	      if(kx != 0)
-		{
-		  fx = (M_PI * kx) / PMGRID;
-		  fx = sin(fx) / fx;
-		}
-	      if(ky != 0)
-		{
-		  fy = (M_PI * ky) / PMGRID;
-		  fy = sin(fy) / fy;
-		}
-	      if(kz != 0)
-		{
-		  fz = (M_PI * kz) / PMGRID;
-		  fz = sin(fz) / fz;
-		}
-	      ff = 1 / (fx * fy * fz);
+	      if(k2 > 0) {
+		fx = fy = fz = 1;
+		if(kx != 0)
+		  {
+		    fx = (M_PI * kx) / PMGRID;
+		    fx = sin(fx) / fx;
+		  }
+		if(ky != 0)
+		  {
+		    fy = (M_PI * ky) / PMGRID;
+		    fy = sin(fy) / fy;
+		  }
+		if(kz != 0)
+		  {
+		    fz = (M_PI * kz) / PMGRID;
+		    fz = sin(fz) / fz;
+		  }
+		ff = 1 / (fx * fy * fz);
 		 
-	      // KC 10/5/14
-	      // The CIC charge assignment (sampling along a mesh of a CIC continuous charge distribution 
-	      // implied by the actual point charges).  The implied continuous charge distribution is 
-	      // given by the space density convolved with the CIC kernel W(x-x') (c.f. Hockney 5-165)
-	      //
-	      // The Fourier space CIC kernel is (1/ff)**2    
-	      //
-	      // We divide by the CIC kernel because we are deconvolving
-	      //
-	      // We divide by the CIC kernel twice: once comes from the charge assignment procedure above
-	      // a second time comes from the force interpolation procedure
-	      //
-	      // We also apply the short range truncation, here in k-space
-	      //
-	      // NOTE: Transposed order of indicies due to FFTW in k-space
-	      smth = -exp(-k2 * asmth2) * ff * ff * ff * ff;
+		// KC 10/5/14
+		// The CIC charge assignment (sampling along a mesh of a CIC continuous charge distribution 
+		// implied by the actual point charges).  The implied continuous charge distribution is 
+		// given by the space density convolved with the CIC kernel W(x-x') (c.f. Hockney 5-165)
+		//
+		// The Fourier space CIC kernel is (1/ff)**2    
+		//
+		// We divide by the CIC kernel because we are deconvolving
+		//
+		// We divide by the CIC kernel twice: once comes from the charge assignment procedure above
+		// a second time comes from the force interpolation procedure
+		//
+		// We also apply the short range truncation, here in k-space
+		//
+		//
+		// This is the only place asmth has entered anywhere!
+		smth = (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, sqrt(k2), 1);
+		smth *= -exp(-k2 * asmth2) * ff * ff * ff * ff;
 
-	      ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+		// NOTE: Transposed order of indicies due to FFTW in k-space
+		ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
 
-	      // KC 27.9.15
-	      // 
-	      // CONSTRAINT: 
-	      // We send the MassTable masses as passive and active masses so that the 
-	      // scale of the force law can be appropriately set.  If the source mass appears
-	      // then it must be the same for all within the species.  If the target mass appears,
-	      // then ALL species must have uniform masses across their species.
-	      //
-	      // Note that the greens function can only ever depend on |k| since the force is 
-	      // isotropic!
-	      //
+		// KC 27.9.15
+		// 
+		// CONSTRAINT: 
+		// We send the MassTable masses as passive and active masses so that the 
+		// scale of the force law can be appropriately set.  If the source mass appears
+		// then it must be the same for all within the species.  If the target mass appears,
+		// then ALL species must have uniform masses across their species.
+		//
+		// Note that the greens function can only ever depend on |k| since the force is 
+		// isotropic!
+		//
 		  
-	      // NOTE: In the case that k is zero, your GreensFxns should return 1, so that the fft is 
-	      // undisturbed!
-	      smth *= (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1);
-	      /* end deconvolution */
+		/* end deconvolution */
 		  
-	      // KC 12/4/14
-	      // Note that smth contains the exponential factor and the deconvolution stuff
-	      fft_of_rhogrid[ip].re *= smth;
-	      fft_of_rhogrid[ip].im *= smth;
+		// KC 12/4/14
+		// Note that smth contains the exponential factor and the deconvolution stuff
+		fft_of_rhogrid[ip].re *= smth;
+		fft_of_rhogrid[ip].im *= smth;
+	      }
 	    }
+	    
       
-      // KC 1/1/16
-      // XXX We must modify this check!!  So if k = 0 power is nan, then we do this
-      // The DC power doesn't matter anyway, because it will just disappear upon computation of the force
-      // (It certainly matters for the potential though!)
+      // Don't explicily kill 0 power?
       if(slabstart_y == 0)
-	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
-      //	fprintf(stderr, "DC power: (%.15e, %.15e)\n", fft_of_rhogrid[0].re, fft_of_rhogrid[0].im);
+      	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
 
       // KC 10/5/14 
       // This will produce the potential in real space
@@ -1037,7 +1033,7 @@ void pmpotential_periodic(void)
 
 	      // KC 12/31/15
 	      // Always include k2==0 now, in general we may have finite power in k=0...
-	      smth = -exp(-k2 * asmth2) * (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, 0.0, 1) * fac;
+	      smth = -exp(-k2 * asmth2) * (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, sqrt(k2), 1) * fac;
 	      /* do deconvolution */
 	      fx = fy = fz = 1;
 	      if(kx != 0)

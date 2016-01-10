@@ -49,9 +49,12 @@ stack = []
 if not len(sys.argv) > 3: 
     for i in range(int(sys.argv[1])):
 
+        # Randomly pick a spot
+        
         # Use this as the merge
         os.system("g2munge - rand 4999 10000 2.5e-4 1 2 > ./tpmfp/tpmfp_tests")
-    
+        
+        
         # Create an IC containing one very heavy particle randomly
         os.system("g2munge - rand 1 10000 1.0 1 1 | g2munge - merge ./tpmfp/tpmfp_tests > ./tpmfp/tpmfp_IC")
 

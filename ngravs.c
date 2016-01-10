@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_math.h>
-
+#include <gsl/gsl_sf_erf.h>
 #include "ngravs.h"
 #include "allvars.h"
 #include "proto.h"
@@ -824,6 +824,14 @@ double ewald_psi(double x[3])
  *
  */
 
+// KC 1/10/16
+// XXX
+// ym/2 should be on all Yukawa quantities so that a Gauss computation 
+// gives a unit enclosed charge!!
+//
+// For some reason though, puting this in really fucks everything up
+//
+
 /*! A pure Yukawa force
  *
  * Radii take values in [0, BoxLength] for periodic, unconstrained otherwise.
@@ -834,7 +842,7 @@ double yukawa(double target, double source, double h, double r, long N) {
   
   double ym;
   ym = YUKAWA_IMASS/All.BoxSize;  
-  return source * YUKAWA_ALPHA * exp(-r*ym) * (ym/r + 1.0/h);
+  return source * exp(-r*ym) * (ym/r + 1.0/h);
 }
 
 /*! A periodic yukawa k-space Greens function, normalized by the Newtonian interaction
@@ -842,6 +850,7 @@ double yukawa(double target, double source, double h, double r, long N) {
  */
 double pgyukawa(double target, double source, double k2, double k, long N) {
   
+  //double ym = YUKAWA_IMASS/(2*M_PI);
   double ym = YUKAWA_IMASS/(2*M_PI);
   return 1.0 / (k2 + ym*ym);
 }
@@ -999,14 +1008,8 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   // Note our use of Salin's optimal 'alpha', and our excessive momentum-space
   alpha = 5.64;
 
-  for(i = 0; i < 3; i++)
-    force[i] = 0;
-
   if(iii == 0 && jjj == 0 && kkk == 0)
     return;
-
-  r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
-  r = sqrt(r2);
 
   //
   //
@@ -1024,12 +1027,13 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   //   Below is what was required to make the computed force with a call to yukawa()
   //   equal to that computed here, with the distinct units on each.
   //
+  r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
+  r = sqrt(r2);
   ym = YUKAWA_IMASS;
   // r is in dimensionless octant coordinates [0, 1/2]
-  //
   for(i = 0; i < 3; i++)
-    force[i] += YUKAWA_ALPHA * exp(-r*ym) * (ym + 1.0/r) * x[i]/r2; 
-
+    force[i] = exp(-r*ym) * (ym + 1.0/r) * x[i]/r2; 
+  
 #ifndef NGRAVS_DEBUG_UNITS_CHECK
   // KC 12/4/14
   // Looks like this takes the first four images out in position space in each direction (so
@@ -1048,12 +1052,16 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
   	  
 	  // 0.5*(A + B) eventually /r^3
-	  val = 0.5*( exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) +
-  	  	      exp(-ym*r)*erfc(alpha*r - ym/(2*alpha)));
+	  val = 0.5000000000000*( exp(ym*r)*gsl_sf_erfc(alpha*r + ym/(2*alpha)) +
+				  exp(-ym*r)*gsl_sf_erfc(alpha*r - ym/(2*alpha)));
+
+	  // KC 1/7/16
+	  // For r > rcut, approx = 0.5*exp(ym*r)*erfc(alpha*r + ym/(2*alpha))
+	  // Overall, it will carry a factor of 1/r^2.
 
 	  // 0.5*(A + C*r) eventually /r^3
-	  /* val = 0.5*erfc(alpha*r - ym/(2*alpha))*exp(-ym*r)*(1 + ym*r); */
-	  /* val += 0.5*erfc(alpha*r + ym/(2*alpha))*exp(ym*r)*(1 - ym*r); */
+	  /* val = 0.5*gsl_sf_erfc(alpha*r - ym/(2*alpha))*exp(-ym*r)*(1 + ym*r); */
+	  /* val += 0.5*gsl_sf_erfc(alpha*r + ym/(2*alpha))*exp(ym*r)*(1 - ym*r); */
 	  
 	  // 0.5*(B + D*r) eventually /r^3
 	  
@@ -1064,11 +1072,15 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 	  /* val = 2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI); */
 
 	  // 0.5*ym*(C +1 D) + E eventually /r^2
-  	  val = 0.5*ym*(-exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) +
-	  		exp(-ym*r)*erfc(alpha*r - ym/(2*alpha))) +
+  	  val = 0.5000000000000*ym*(-exp(ym*r)*gsl_sf_erfc(alpha*r + ym/(2*alpha)) +
+				    exp(-ym*r)*gsl_sf_erfc(alpha*r - ym/(2*alpha))) +
   	    2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI);
 
-  	  // KC 11/16/15
+	  // KC 1/7/16
+	  // For r > rcut, approx = -0.5*ym*exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) + 2*alpha*exp(-ym*ym/(4*alpha*alpha))/sqrt(M_PI)
+	  // eventually /r
+
+  	  // KC 11/16/110
   	  // Note that these terms enter with one less radial power in the denominator
   	  for(i = 0; i < 3; i++)
   	    force[i] -= dx[i] / (r * r) * val;
@@ -1078,14 +1090,18 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   // Looks like this takes the first four images in momentum space in each diretion (again
   // bracketing by 8 overall)
   //
-  // KC 11/16/15
+  // KC 11/16/110
   // Take careful note of the relative signs!!
   // If you take the negative grad_r, then the signs are the same!
   //
-  // KC 12/31/15
+  // KC 12/31/110
   // My ym is already Caillol's alpha*
   // Volker's alpha is Caillol's beta*
   // 
+
+  // Because it only shows up in this combination now
+  ym /= 2*M_PI;
+
   for(h[0] = -5; h[0] <= 5; h[0]++)
     for(h[1] = -5; h[1] <= 5; h[1]++)
       for(h[2] = -5; h[2] <= 5; h[2]++)
@@ -1096,8 +1112,8 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
 	  if(h2 > 0) {
 
 	    //	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
-	    val = 2*M_PI*exp(-(4*M_PI*M_PI*h2 + ym*ym)/(4*alpha*alpha))*sin(2*M_PI*hdotx) /
-	      (M_PI*h2 + ym*ym/(4*M_PI));
+	    val = 2*exp(-M_PI*M_PI*(h2 + ym*ym)/(alpha*alpha))*sin(2*M_PI*hdotx) /
+	      (h2 + ym*ym);
 
 	    for(i = 0; i < 3; i++)
 	      force[i] -= h[i] * val;
@@ -1353,7 +1369,11 @@ int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z,
   }
 
   // 1) FFTW needs this loaded in wonk order
+  // XXX? Should this be explicitly zero'd to avoid a constant force contribution
+  // to the corretion tabulations?  Apparently not, because the k = 0 for
+  // normed newton is 1 and that works...
   in[0].re = fourierIntegrand(jTok(0, Z, s), normKGreen, Z);
+
   for(j = 1; j < s->ngravs_tpm_n/2; ++j) {
 
     in[j].re = fourierIntegrand(jTok(j, Z, s), normKGreen, Z);
@@ -1378,7 +1398,14 @@ int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z,
   // 3) Integrate so as to constrain the error correctly:
   // Newton-Cotes 4-point rule
   // Run the sum at double precision, though we may assign to lower precision
-  sum = 0.0;
+  //
+  // KC 1/5/16
+  // XXX?
+  // The first term of the integrated quantity should be zero, as it corresponds to r=0?
+  //
+  // Is there an off by one error here?
+  //sum = 0.0;
+  // Remove the lowest 
   in[0].re = 0.0;
   for(m = 0; m < s->ngravs_tpm_n-3; m += 3) {
     sum += (mTox(m+3, s) - mTox(m, s)) * 0.125 * norm * (out[m].re + 3.0*out[m+1].re + 3.0*out[m+2].re + out[m+3].re);

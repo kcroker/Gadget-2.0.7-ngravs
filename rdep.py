@@ -37,7 +37,7 @@ N = int(sys.argv[1])
 N = N + (N % 2)
 
 label = sys.argv[3]
-testm = 1.0
+testm = 2.5e-1
 cenm = 1.0e3
 
 random.seed()
@@ -87,7 +87,9 @@ if len(sys.argv) > 4:
         os.system("mv ./%s/forcetest.txt ./%s/%s/forcetest_%d.txt" % (proggyName, proggyName, label, i))
 
 
+# Open and record the mass parameters
 recv = open("./%s/%s/%s_output" % (proggyName, label, proggyName), 'w', 0)
+recv.write("# testm:%.15e\n# cenm:%.15e\n" % (testm, cenm))
 
 for i in range(N):
     # 3) Process the data
@@ -121,13 +123,13 @@ for i in range(N):
         o.tree_accel *= mass
     
     # Record
-    recv.write("%f %.7e %.7e %.7e %.7e %.7e %.7e\n" % (r, 
-                                                       np.linalg.norm(c.daccel), 
-                                                       np.linalg.norm(c.tpm_accel),
-                                                       np.linalg.norm(c.tree_accel),
-                                                       np.linalg.norm(t.daccel),
-                                                       np.linalg.norm(t.tpm_accel),
-                                                       np.linalg.norm(t.tree_accel)))
+    recv.write("%f %.15e %.15e %.15e %.15e %.15e %.15e\n" % (r, 
+                                                             np.linalg.norm(c.daccel), 
+                                                             np.linalg.norm(c.tpm_accel),
+                                                             np.linalg.norm(c.tree_accel),
+                                                             np.linalg.norm(t.daccel),
+                                                             np.linalg.norm(t.tpm_accel),
+                                                             np.linalg.norm(t.tree_accel)))
                                       
                             
 recv.close()

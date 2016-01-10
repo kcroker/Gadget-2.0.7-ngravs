@@ -139,12 +139,12 @@ gravity AccelSplines[N_GRAVS][N_GRAVS];
 
 latforce LatticeForce[N_GRAVS][N_GRAVS];
 latpot LatticePotential[N_GRAVS][N_GRAVS];
-float LatticeZero[N_GRAVS][N_GRAVS];
+FLOAT LatticeZero[N_GRAVS][N_GRAVS];
 
 #if defined OUTPUTPOTENTIAL || PMGRID
 gravity PotentialFxns[N_GRAVS][N_GRAVS];
 gravity PotentialSplines[N_GRAVS][N_GRAVS];
-float PotentialZero[N_GRAVS][N_GRAVS];
+FLOAT PotentialZero[N_GRAVS][N_GRAVS];
 #endif
 
 /*  Variables for Tree
