@@ -115,12 +115,13 @@ OPT   +=  -DFORCETEST=1
 #----------------------------------------------------------------------
 
 #--------------------------------------- Select some defaults
+YOUR_SYSROOT=/home/twili/research
 
 CC       = mpicc               # sets the C-compiler
 OPTIMIZE = -g -O3 -Wall
 MPICHLIB = 
-FFTW_INCL= -I/home/twili/research/include
-FFTW_LIBS= -L/home/twili/research/lib
+FFTW_INCL= -I$(YOUR_SYSROOT)/include
+FFTW_LIBS= -L$(YOUR_SYSROOT)/lib
 
 
 #--------------------------------------- Select target computer
@@ -279,7 +280,7 @@ endif
 LIBS   =   -g  $(MPICHLIB) -lgsl -lgslcblas -lm $(FFTW_LIB) 
 
 $(EXEC): $(OBJS) 
-	$(CC) $(OBJS) $(LIBS) $(CFLAGS)  -o  $(EXEC)  
+	$(CC) $(OBJS) $(LIBS) $(CFLAGS) -o  $(EXEC)
 
 $(OBJS): $(INCL) 
 

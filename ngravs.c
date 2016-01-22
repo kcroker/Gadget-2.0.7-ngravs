@@ -1444,8 +1444,9 @@ struct ngravsInterpolant *ngravsConvolutionInit(int ntab, int len, int ol) {
   s->ol = ol;
   s->ngravs_tpm_n = 12*ntab*ol*len-6*ol*len+2;
   s->plan = fftw_create_plan(s->ngravs_tpm_n, FFTW_BACKWARD, FFTW_ESTIMATE);
-
-  printf("ngravs: max_k = %.15e\n", jTok(s->ngravs_tpm_n/2, 0.5, s));
+  
+  if(!ThisTask)
+    printf("ngravs: max_k = %.15e\n", jTok(s->ngravs_tpm_n/2, 0.5, s));
 
   return s;
 }
