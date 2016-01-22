@@ -7,7 +7,8 @@
 #include <unistd.h>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_math.h>
-
+#include <gsl/gsl_sf_erf.h>
+#include "ngravs.h"
 #include "allvars.h"
 #include "proto.h"
 
@@ -29,6 +30,30 @@
  *
  */
 
+#define YUKAWA_ALPHA 1
+
+#ifdef PERIODIC
+// Make sure to use a decimal here
+#ifndef YUKAWA_IMASS
+#define YUKAWA_IMASS 60.0
+#endif
+//
+// 1/YUKAWA_IMASS sets the suppression *length* scale wrt 1/2 box length
+//
+// Examples: 0.5 gives 1/e suppression at 4 half-boxlengths out
+//           2 gives 1/e suppression at 1 half-boxlength 
+//           10 gives (1/e)^5 suppression at 1 half-boxlength
+//           24 gives (1/e)^12 at 1 half-boxlength
+//
+// (These units are required for an interpolation that is invariant to boxlength)
+//
+#else
+#define YUKAWA_IMASS (1e2/All.BoxSize) // Otherwise, do it in terms of normal units
+#endif
+
+
+struct ngravsInterpolant *ngravsPeriodicTable;
+
 
 /*! This function must be modified to point to your desired
  *  extensions to gravity.  It determines which force laws
@@ -37,18 +62,22 @@
 void wire_grav_maps(void) {
 
   int i,j;
+  char *fname;
 
   // KC 8/11/14 Wiring
   //
   // NOTE: For all interaction functions
   //
   //       InteractionFunctions[TARGET][SOURCE]
+  //       (i.e. InteractionFunctions[PASSIVE][ACTIVE])
   //
-  // NOTE: NgravsNames[][] is used to index things used by the simulation
+  // VERY IMPORTANT: NgravsNames[][] is used to index things used by the simulation
   // code, like lattice correction tables.  So please make a unique identifier!
+  // (It will also be used eventually to save memory and startup-time by not 
+  // computing redundant tables.)
   //
 
-#if !defined NGRAVS_STOCK_TESTING && !defined NGRAVS_ACCUMULATOR_TESTING
+#if !defined NGRAVS_STOCK_TESTING && !defined NGRAVS_ACCUMULATOR_TESTING && !defined NGRAVS_GEN_TESTING_UNIFORM
   /////////////////////// WIRING FOR RESEARCH RUNS ///////////////////
   //
   // Here is where you wire for your research runs.  If you wish to verify force accuracy,
@@ -62,7 +91,9 @@ void wire_grav_maps(void) {
 
   ///////////////// END WIRING FOR RESEARCH RUNS ///////////////////////
   
-#elif defined NGRAVS_STOCK_TESTING && !defined NGRAVS_ACCUMULATOR_TESTING
+#elif defined NGRAVS_STOCK_TESTING
+  printf("ngravs: wired in stock comparison test mode\n");
+
   ////////////////////// WIRING FOR NEWTONIAN COMPARISONS //////////////
   //
   // This code automatically populates all gravitational types with
@@ -89,6 +120,10 @@ void wire_grav_maps(void) {
       //
       // For Newtonian things, this is always the case.
       //
+      // WARNING: The distance scale in the LatticeForce computation is dimensionless in terms
+      //          of the a box grid with EN (see forcetree.c) number of points.  The actual force
+      //          is interpolated from this force trilinearly.
+      //
       LatticeForce[i][j] = ewald_force;
       LatticePotential[i][j] = ewald_psi;
       LatticeZero[i][j] = 2.8372975;
@@ -100,6 +135,7 @@ void wire_grav_maps(void) {
       // for a source at the origin
 #ifdef PMGRID
       GreensFxns[i][j] = pgdelta;
+      NormedGreensFxns[i][j] = normed_pgdelta;
 #endif
 
       // KC 11/25/14
@@ -119,12 +155,14 @@ void wire_grav_maps(void) {
     }
   }
   ////////////////////// END NEWTONIAN COMPARISONS WIRING ///////////////////
+
+#elif defined NGRAVS_ACCUMULATOR_TESTING
+  printf("ngravs: wired in accumulator test mode\n");
   
-#elif !defined NGRAVS_STOCK_TESTING && defined NGRAVS_ACCUMULATOR_TESTING
   ///////////////// ACCUMULATOR TESTING RUNS ////////////////////////////
   //
   // This code specifically tests the N_\perp addition with a force law
-  // (BAM) which violates SEP.  Here the N_\perp correction is an exact
+  // (BAM) where the N_\perp correction is an exact
   // correction.
   //
   ///////////////////////////////////////////////////////////////////////
@@ -135,10 +173,14 @@ void wire_grav_maps(void) {
   NgravsNames[1][1] = "BAMBAM";
 
   AccelFxns[0][0] = newtonian;
+  AccelFxns[0][1] = sourcebambaryon;
+  AccelFxns[1][0] = sourcebaryonbam;
+  AccelFxns[1][1] = bambam;
+
   AccelSplines[0][0] = plummer;
-  AccelFxns[0][1] = AccelSplines[0][1] = sourcebambaryon;
-  AccelFxns[1][0] = AccelSplines[1][0] = sourcebaryonbam;
-  AccelFxns[1][1] = AccelSplines[1][1] = bambam;
+  AccelSplines[0][1] = sourcebambaryon_spline; 
+  AccelSplines[1][0] = sourcebaryonbam_spline;
+  AccelSplines[1][1] = bambam_spline; 
 
 #if defined OUTPUTPOTENTIAL || defined PMGRID
   // These won't be used, as the simulation is non-periodic
@@ -164,12 +206,1269 @@ void wire_grav_maps(void) {
 
   //////////////// END ACCUMULATOR TESTING WIRING ///////////////////////////
 
+#elif defined NGRAVS_GEN_TESTING_UNIFORM
+  printf("ngravs: wired in uniform generalized force test mode\n");
+  //////////////// BEGIN GENERALIZE FORCE TESTING WIRING ///////////////////////////
+  //
+  // This code is used to examine the force accuracy during the TreePM transition
+  // for a more general force, in this case Yukawa.  Two populations of particles
+  // interact via Newtonian, except the self-interactions of one type are Yukawa.
+  //
+  ///////////////////////////////////////////////////////////////////////
+
+  for(i = 0; i < N_GRAVS; ++i) {
+    for(j = 0; j < N_GRAVS; ++j) {
+      
+      // Allocate a new one each time, 
+      // because that's what we'd have to be doing anyway.
+      // This is not a leak because we need these handles throughout the
+      // entire program run.
+      fname = (char *)malloc(128);
+      snprintf(fname, 128, "Yukawa_%e", YUKAWA_IMASS);
+ 
+      NgravsNames[i][j] = fname;
+      AccelFxns[i][j] = yukawa;
+
+      // We set the Yukawa spline to plummer since
+      // the force is Newtonian at small r
+      // This being incorrect won't matter for force checking the TreePM 
+      // stuff, because the force correction uses the spline too.
+      AccelSplines[i][j] = plummer;
+
+#if defined PERIODIC
+      // Computed from G. Salin and J.M. Caillol
+      // J. Chem. Phys., Vol 113, No. 23, 2000
+      LatticeForce[i][j] = yukawa_lattice_force;
+      LatticePotential[i][j] = yukawa_lattice_psi;
+      LatticeZero[i][j] = yukawa_madelung(YUKAWA_IMASS*2*NGRAVS_EN);
+      if(!ThisTask)
+	printf("ngravs: Yukawa force Madelung constant for [%d][%d] = %f\n", i, j, LatticeZero[i][j]);
+#endif
+
+#if defined OUTPUTPOTENTIAL || defined PMGRID
+      GreensFxns[i][j] = pgyukawa;
+      NormedGreensFxns[i][j] = normed_pgyukawa;
+
+      // We don't care about the potentials because we're
+      // not doing non-periodic or gastrophysics
+      PotentialFxns[i][j] = none;
+      PotentialSplines[i][j] = none;
+      PotentialFxns[i][j] = none;
+#endif
+    }
+  }
+
+/*   NgravsNames[0][0] = "Newton"; */
+/*   NgravsNames[0][1] = "Newton"; */
+/*   NgravsNames[1][0] = "Newton"; */
+/*   NgravsNames[1][1] = "Yukawa"; */
+
+/*   AccelFxns[0][0] = newtonian; */
+/*   AccelFxns[0][1] = newtonian; */
+/*   AccelFxns[1][0] = newtonian; */
+/*   AccelFxns[1][1] = yukawa; */
+
+/*   // We set the Yukawa spline to plummer since */
+/*   // the force is Newtonian at small r */
+/*   AccelSplines[0][0] = plummer; */
+/*   AccelSplines[0][1] = plummer;  */
+/*   AccelSplines[1][0] = plummer; */
+/*   AccelSplines[1][1] = plummer;  */
+
+/* #if defined PERIODIC */
+/*   LatticeForce[0][0] = ewald_force; */
+/*   LatticePotential[0][0] = ewald_psi; */
+/*   LatticeZero[0][0] = 2.8372975; */
+
+/*   LatticeForce[0][1] = LatticeForce[1][0] = ewald_force; */
+/*   LatticePotential[0][1] = LatticePotential[1][0] = ewald_psi; */
+/*   LatticeZero[0][1] = LatticeZero[1][0] = 2.8372975; */
+
+/*   LatticeForce[1][1] = lattice_force_none; */
+/*   LatticePotential[1][1] = lattice_pot_none; */
+/*   LatticeZero[1][1] = 0.0; */
+/* #endif */
+
+/* #if defined OUTPUTPOTENTIAL || defined PMGRID */
+/*   GreensFxns[0][0] = pgdelta; */
+/*   GreensFxns[0][1] = pgdelta; */
+/*   GreensFxns[1][0] = pgdelta; */
+/*   GreensFxns[1][1] = pgyukawa; */
+
+/*   // We don't care about the potentials because we're */
+/*   // not doing non-periodic or gastrophysics */
+/*   PotentialFxns[0][0] = none; */
+/*   PotentialSplines[0][0] = none; */
+
+/*   PotentialSplines[0][1] = none; */
+/*   PotentialFxns[0][1] = none; */
+
+/*   PotentialSplines[1][0] = none; */
+/*   PotentialFxns[1][0] = none; */
+
+/*   PotentialSplines[1][1] = none; */
+/*   PotentialFxns[1][1] = none; */
+  
+/*   PotentialFxns[0][1] = none; */
+/*   PotentialFxns[1][0] = none; */
+/*   PotentialFxns[1][1] = none; */
+/*   PotentialZero[0][0] = 0.0; */
+/*   PotentialZero[0][1] = 0.0; */
+/*   PotentialZero[1][0] = 0.0; */
+/*   PotentialZero[1][1] = 0.0; */
+/* #endif */
+
+  //////////////// END GENERALIZE FORCE TESTING WIRING ///////////////////////////
+
 #else
   printf("ngravs: unsupported testing options defined in the Makefile.  Cannot do (explicit) accumulator tests and Newtonian comparions at the same time");
   endrun(1000);
 #endif
+}
+
+///////////////////// BEGIN GENERALIZED FORCE AND GREENS FUNCTIONS /////////
+//
+// KC 10/18/14
+//
+// WARNING: Note that, presumably to eliminate a plethora of unnecessary negations,
+//          Gadget-2 works with the positive of the acceleration.  
+//
+// ALL ACCELERATION *SIGNS* APPEARING HERE ARE TO BE INVERTED FROM WHAT YOU NORMALLY WOULD WRITE
+//
+// NOTE OPTIMIZATION: since an AccelFxn does not use h as a softening, we pass in
+//                    the r^2 (since it is already computed), so that we can perform 
+//                    fewer multiplications
+//  
+
+/*! This is no gravity.  It returns 0.0 regardless of input
+ */
+double none(double target, double source, double h, double r, long N){ 
+
+  return 0.0;
+}
+
+/*! This is Newtonian gravity, and is the usual baryon-baryon interaction 
+ */
+double newtonian(double target, double source, double h, double r, long N) {
+
+  // Note newtonian does not violate SEP
+  return source / h;
+} 
+
+/*! This is **inverted** Newtonian gravity, for use in the Hohmann & Wolfarth scenario
+ */
+double neg_newtonian(double target, double source, double h, double r, long N) {
+
+  // Note newtonian does not violate SEP
+  return -source / h;
+} 
+
+/*! This is the usual Newtonian gravitational potential
+ *
+ */
+double newtonian_pot(double target, double source, double h, double r, long N) {
+
+  return source / r;
+}
+
+/*! This is the **inverted** Newtonian potential
+ */
+double neg_newtonian_pot(double target, double source, double h, double r, long N) {
+
+  return -source / r;
+}
+
+// KC 10/30/15
+//
+// The k that gadget uses is dimensionless between [-PMGRID/2, PMGRID/2].  The original form 
+// plugged into the convolution is also this dimensionless form.  So, your Greens function will need to 
+// be dimensionless.  The length scale is All.BoxSize.  
+//
+// FACTORS ARE SUCH THAT: 4\pi G/k^2 \becomes 1.0
+/*! This is the box periodic NORMALIZED Green's function for a point source of unit mass
+ */
+double pgdelta(double target, double source, double k2, double k, long N) {
+
+  if(k2 > 0)
+     return 1.0/k2;
+  else
+    return 1.0;
+}
+
+double normed_pgdelta(double target, double source, double k2, double k, long N) {
+
+  return 1.0;
+}
+
+/*! This is the **inverted** box periodic Green's function for a point source of unit mass, 
+ *  for use in the Hohmann & Wolfarth scenario
+ */
+double neg_pgdelta(double target, double source, double k2, double k, long N) {
+
+  if(k2 > 0)
+     return -1.0/k2;
+  else
+    return -1.0;
+}
+
+/*! This is the Plummer spline used by GADGET-2
+ */
+// 
+// WARNING: Acceleration splines contain an additional factor of 1/r (or 1/h) 
+//          as this division is not carried out for splined forces in forcetree.c
+//          This is because splines need to divide by the softening scale instead
+//          of the radius when computing their forces.
+double plummer(double target, double source, double h, double r, long N) {
+
+  double h_inv;
+
+  h_inv = 1/h;
+  
+  r *= h_inv;
+  if(r < 0.5)
+    return source * h_inv * h_inv * h_inv * 
+      (10.666666666667 + r * r * (32.0 * r - 38.4));
+  else
+    return source * h_inv * h_inv * h_inv * 
+      (21.333333333333 - 48.0 * r +
+       38.4 * r * r - 10.666666666667 * r * r * r - 0.066666666667 / (r * r * r));
+}
+
+/*! This is the "inverted" Plummer spline for use in the Hohmann & Wolfarth scenario
+ */
+double neg_plummer(double target, double source, double h, double r, long N) {
+
+  double h_inv;
+
+  // KC 10/26/14
+  // It remains a question whether calling a fxn with 5 things on the stack is going to be 
+  // slower than just multiplying things out every time and calling something with 3 things
+  h_inv = 1/h;
+  
+  r *= h_inv;
+  if(r < 0.5)
+    return -source * h_inv * h_inv * h_inv * 
+      (10.666666666667 + r * r * (32.0 * r - 38.4));
+  else
+    return -source * h_inv * h_inv * h_inv * 
+      (21.333333333333 - 48.0 * r +
+       38.4 * r * r - 10.666666666667 * r * r * r - 0.066666666667 / (r * r * r));
+}
+
+/*! This is the potential of the Plummer spline used by GADGET-2
+ */
+double plummer_pot(double target, double source, double h, double r, long N) {
+  
+  double h_inv;
+  
+  h_inv = 1/h;
+  r *= h_inv;
+
+  if(r < 0.5)
+    return source * h_inv * (-2.8 + r * r * (5.333333333333 + r * r * (6.4 * r - 9.6)));
+  else
+    return source * h_inv * 
+      (-3.2 + 0.066666666667 / r + r * r * (10.666666666667 +
+					    r * (-16.0 + r * (9.6 - 2.133333333333 * r))));
+}
+
+/*! This is the negative potential of the Plummer spline, for use in Hohmann & Wolfarth scenario
+ */
+double neg_plummer_pot(double target, double source, double h, double r, long N) {
+  
+  double h_inv;
+  
+  h_inv = 1/h;
+  r *= h_inv;
+
+  if(r < 0.5)
+    return -source * h_inv * (-2.8 + r * r * (5.333333333333 + r * r * (6.4 * r - 9.6)));
+  else
+    return -source * h_inv * 
+      (-3.2 + 0.066666666667 / r + r * r * (10.666666666667 +
+					    r * (-16.0 + r * (9.6 - 2.133333333333 * r))));
+}
+
+
+/*! This is the BAM-BAM interaction
+ * c.f. http://arxiv.org/abs/1408.2702
+ */
+double bambam(double target, double source, double h, double r, long N) {
+  
+  // Note apparent SEP violation
+  // Note naturally softened
+  // Note adjustment of the internal scale by N.  Thus the scale is determined by the average mass content of the cell.
+  // In the case where the all BAM halos have the same mass parameter, this correction is the *exact* correction.
+
+  double eta, rho;
+  double eta3;
+  double reta, reta2;
+
+  eta = 4.0*M_PI*BAM_EPSILON/(target+source/N);
+  rho = 2*target*source/M_PI;
+
+  reta = r * eta;
+  reta2 = reta * reta;
+  eta3 = eta * eta * eta;
+ 
+  if(reta < 0.1) {
+    
+    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
+    // we want to divide out by the r
+    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
+    // the differentiate termwise to get the force
+    // also multiply by -1: F \def -\grad pot
+    
+    
+    // KC 11/3/15
+    // r put back in because forcetree.c divides it out now
+    return rho * eta3 * (2.0*r/3.0 - 4.0*reta2*r/5.0 + 6.0*reta2*reta2*r/7.0);
+  }
+  else
+    // KC 11/3/15 - corrected radial factor
+    return rho * eta3 * (atan(reta)/(reta2*eta) - 1.0/(reta*eta*(1+reta2)));
+}
+
+double bambam_spline(double target, double source, double h, double r, long N) {
+  
+  // Note apparent SEP violation
+  // Note naturally softened
+  // Note adjustment of the internal scale by N.  Thus the scale is determined by the average mass content of the cell.
+  // In the case where the all BAM halos have the same mass parameter, this correction is the *exact* correction.
+
+  double eta, rho;
+  double eta3;
+  double reta, reta2;
+
+  eta = 4.0*M_PI*BAM_EPSILON/(target+source/N);
+  rho = 2*target*source/M_PI;
+
+  reta = r * eta;
+  reta2 = reta * reta;
+  eta3 = eta * eta * eta;
+
+  // KC 11/3/15 - corrected radial factor
+  if(reta < 0.1)
+    return rho * eta3 * (2.0/3.0 - 4.0*reta2/5.0 + 6.0*reta2*reta2/7.0);
+  else
+    return rho * eta3 * (atan(reta)/(reta2*reta) - 1.0/(reta2*(1+reta2)));
+}
+
+/*! This is the BAM-Baryon interaction sourced by a BAM.
+ * Note that here the target is a baryon!!
+ * The force laws are necessarily symmetric, but the computation GADGET-2 uses
+ * is not the force, but the adjustment to the acceleration of the target.  
+ * So you have to be careful here. 
+ */
+double sourcebambaryon_spline(double target, double source, double h, double r, long N) {
+
+  double eta, rho;
+  double eta3;
+  double reta, reta2;
+
+  rho = 2*target*source/M_PI;
+  eta = 4.0*M_PI*BAM_EPSILON*N/source;
+  
+  reta = r * eta;
+  reta2 = reta * reta;
+  eta3 = eta * eta * eta;
+ 
+  if(reta < 0.1) {
+    
+    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
+    // we want to divide out by the r
+    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
+    // the differentiate termwise to get the force
+    // also multiply by -1: F \def -\grad pot
+    // also must divide by an additional 1/r to give the unit vector in code!
+    //
+    return rho * eta3 * (2.0/3.0 - 4.0*reta2/5.0 + 6.0*reta2*reta2/7.0);
+  }
+  else
+    return rho * eta3 * (atan(reta)/(reta2*reta) - 1.0/(reta2*(1+reta2)));
+}
+
+double sourcebambaryon(double target, double source, double h, double r, long N) {
+
+  double eta, rho;
+  double eta3;
+  double reta, reta2;
+
+  rho = 2*target*source/M_PI;
+  eta = 4.0*M_PI*BAM_EPSILON*N/source;
+  
+  reta = r * eta;
+  reta2 = reta * reta;
+  eta3 = eta * eta * eta;
+
+  // KC 11/3/15 - corrected radial factor
+  if(reta < 0.1)
+    return rho * eta3 * (2.0*r/3.0 - 4.0*reta2*r/5.0 + 6.0*reta2*reta2*r/7.0);
+  else
+    return rho * eta3 * (atan(reta)/(reta2*eta) - 1.0/(reta*eta*(1+reta2)));
+}
+
+/*! This is the BAM-Baryon interaction sourced by a baryon.
+  Note that here the target is a BAM!!
+  The force laws are necessarily symmetric, but the computation GADGET-2 uses
+  is not the force, but the adjustment to the acceleration of the target.  
+  So you have to be careful here.
+ */
+double sourcebaryonbam_spline(double target, double source, double h, double r, long N) {
+
+  // Note apparent SEP violation
+  // Note naturally softened
+  double eta, rho;
+  double eta3;
+  double reta, reta2;
+
+  eta = 4.0*M_PI*BAM_EPSILON/target;
+  rho = 2*target*source/M_PI;
+
+  reta = r * eta;
+  reta2 = reta * reta;
+  eta3 = eta * eta * eta;
+ 
+  if(reta < 0.1) {
+    
+    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
+    // we want to divide out by the r
+    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
+    // the differentiate termwise to get the force
+    // also multiply by -1: F \def -\grad pot
+    // also must divide by an additional 1/r to give the unit vector in code!
+    //
+    return rho * eta3 * (2.0/3.0 - 4.0*reta2/5.0 + 6.0*reta2*reta2/7.0);
+  }
+  else
+    return rho * eta3 * (atan(reta)/(reta2*reta) - 1.0/(reta2*(1+reta2)));
+}
+
+double sourcebaryonbam(double target, double source, double h, double r, long N) {
+
+  // Note apparent SEP violation
+  // Note naturally softened
+  double eta, rho;
+  double eta3;
+  double reta, reta2;
+
+  eta = 4.0*M_PI*BAM_EPSILON/target;
+  rho = 2*target*source/M_PI;
+
+  reta = r * eta;
+  reta2 = reta * reta;
+  eta3 = eta * eta * eta;
+ 
+  // KC 11/3/15
+  // Adjusted radial factor
+  if(reta < 0.1)
+    return rho * eta3 * (2.0*r/3.0 - 4.0*reta2*r/5.0 + 6.0*reta2*reta2*r/7.0);
+  else
+    return rho * eta3 * (atan(reta)/(reta2*eta) - 1.0/(reta*eta*(1+reta2)));
+}
+
+/*! This is the BAM-BAM potential (or free-space Greens fxn in position representation)
+ * c.f. http://arxiv.org/abs/1408.2702
+ */
+double bambam_pot(double target, double source, double h, double r, long N) {
+
+  // Use a 7th order Taylor polynomial if tan(x) x < 1/10
+  // The error at x = 1/10 for tan(x) is then < 10^-7
+  // Its not beyond double precision, but its almost at float.
+  //
+  // This will be kinda slow...
+  //
+  double eta;
+  double rho;
+  double reta, reta2, reta4;
+
+  rho = 2*target*source/M_PI;
+
+  eta = 4.0*M_PI*BAM_EPSILON/(target+source/N);
+  reta = r * eta;
+  reta2 = reta * reta;
+  reta4 = reta2 * reta2;
+
+  if(reta < 0.1) {
+
+    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
+    // we want to divide out by the r
+    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
+    //
+    return rho * eta*(1 - reta2/3.0 + reta4/5.0 - reta2*reta4/7.0);
+  }
+  else
+    return rho * atan(reta)/r;
+}
+
+// Now note that the advantage of the simple taylor series is that it is easy to compute the 
+// derivative and turn that into a force.
+
+/*! This is the BAM-Baryon potential.  Here a baryon acts as a source.
+ */
+double sourcebaryonbam_pot(double target, double source, double h, double r, long N) {
+
+  double eta;
+  double rho;
+  double reta, reta2, reta4;
+  
+  rho = 2*target*source/M_PI;
+  eta = 4.0*BAM_EPSILON*M_PI*N/target;
+  reta = r * eta;
+  reta2 = reta * reta;
+  reta4 = reta2 * reta2;
+
+  if(reta < 0.1) {
+
+    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
+    // we want to divide out by the r
+    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
+    //
+    return rho * eta*(1 - reta2/3.0 + reta4/5.0 - reta2*reta4/7.0);
+  }
+  else
+    return rho * atan(reta)/r;
+}
+
+/*! This is the BAM-Baryon potential.  Here a BAM acts as a source.
+ */
+double sourcebambaryon_pot(double target, double source, double h, double r, long N) {
+
+  double eta;
+  double rho;
+  double reta, reta2, reta4;
+  
+  rho = 2*target*source/M_PI;
+  eta = 4.0*BAM_EPSILON*M_PI*N/source;
+  reta = r * eta;
+  reta2 = reta * reta;
+  reta4 = reta2 * reta2;
+
+  if(reta < 0.1) {
+
+    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
+    // we want to divide out by the r
+    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
+    //
+    return rho * eta*(1 - reta2/3.0 + reta4/5.0 - reta2*reta4/7.0);
+  }
+  else
+    return rho * atan(reta)/r;
+}
+
+/*! This function computes the potential correction term by means of Ewald
+  *  summation.  Newtonian potential!
+ */
+double ewald_psi(double x[3])
+{
+  double alpha, psi;
+  double r, sum1, sum2, hdotx;
+  double dx[3];
+  int i, n[3], h[3], h2;
+
+  // KC 11/16/15
+  // We will figure out the mappings between the variables used here
+  // and those in J. Chem. Phys., Vol. 113, No. 23, 2000, Eqn. (3.1)
+  // when *their* \alpha \to 0
+  //
+
+  alpha = 2.0;
+
+  for(n[0] = -4, sum1 = 0; n[0] <= 4; n[0]++)
+    for(n[1] = -4; n[1] <= 4; n[1]++)
+      for(n[2] = -4; n[2] <= 4; n[2]++)
+	{
+	  for(i = 0; i < 3; i++)
+	    dx[i] = x[i] - n[i];
+	  
+	  // r (here) = r* (there)
+	  // \alpha (here) = \beta * (there)
+
+	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+	  sum1 += erfc(alpha * r) / r;
+
+	  // Residual distinctions:
+	  // None!
+	}
+
+  for(h[0] = -4, sum2 = 0; h[0] <= 4; h[0]++)
+    for(h[1] = -4; h[1] <= 4; h[1]++)
+      for(h[2] = -4; h[2] <= 4; h[2]++)
+	{
+	  
+	  // hdotx (here) = n \dot \r* (there)
+	  // other mappings the same!
+	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
+	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
+	  if(h2 > 0)
+	    sum2 += 1 / (M_PI * h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * cos(2 * M_PI * hdotx);
+
+	  // Residual distinctions:
+	  // None!
+	}
+
+  r = sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
+
+  // Note the embedded neutralizing background
+  // The mapping holds, with no residual factors! 
+  psi = M_PI / (alpha * alpha) - sum1 - sum2 + 1 / r;
+
+  return psi;
+}
+
+/* Essential notes on units:
+ * ----------------------------------
+ * Units to k, k2 in Greens' Functions: k \in [-PMGRID/2, PMGRID/2] (mesh cells)
+ * Units to r, r2 in Spline and Accel Functions: r \in [0, BoxLength] or unconstrained (given length unit)
+ * Units to x in Lattice functions: x \in [0, 0.5] (fractions of the total side length in one octant)
+ *
+ */
+
+/*! A pure Yukawa force
+ *
+ */
+double yukawa(double target, double source, double h, double r, long N) {
+  
+  double ym;
+  ym = YUKAWA_IMASS/All.BoxSize;  
+  return source * exp(-r*ym) * (ym/r + 1.0/h);
+}
+
+/*! A periodic yukawa k-space Greens function, normalized by the Newtonian interaction
+ *  NOTE: k is supplied dimensionlessly in terms of PMGRID so k \in [-PMGRID/2, PMGRID/2]
+ */
+double pgyukawa(double target, double source, double k2, double k, long N) {
+  
+  double ym = YUKAWA_IMASS/(2*M_PI);
+  double asmth2;
+
+  asmth2 = (2 * M_PI) * All.Asmth[0] / All.BoxSize;
+  asmth2 *= asmth2;
+
+  return 1.0 / (k2 + ym*ym) * exp(-ym*ym*asmth2);
+}
+
+double normed_pgyukawa(double target, double source, double k2, double k, long N) {
+
+  // This converts from PMGRID units into shortrange interpolation table units
+  double ym = gridKtoNormK(YUKAWA_IMASS/(2*M_PI));
+  return k2 / (k2 + ym*ym) * exp(-ym*ym*0.25);
+}
+
+/*! This function computes the Madelung constant for the yukawa potential
+ * which depends on the box length interestingly...
+ * We follow Eqn (2.19) of G. Salin and Caillol (op. cit)
+ *
+ * Note that we use the values de-dedimensionalized in the same way
+ * as the other yukawa lattice functions.
+ *
+ */
+double yukawa_madelung(double ym) {
+  
+  double sum1, sum2, sum3;
+  double k2, m;
+  double alpha;
+  int n[3];
+
+  // KC 11/16/15
+  // We again adopt the same notation as that used in Gadget-2, so their beta
+  // is our alpha, etc (see comments above)
+  //
+  // Note something very interesting:
+  // This function should be *INDEPENDENT* of alpha if ym=0
+  // Gotta figure out why its not...
+  alpha = 5.64;
+
+  // Going out to the same distance seems like a good idea, no?
+  // Notice that reducing all the quantities results in an over factor of (1/L)
+  // This factor is NOT present in the originally specified number, so Gadget-2
+  // must be putting it back in somewhere.  So we elide it.
+  for(n[0] = -5, sum1 = 0, sum2 = 0; n[0] <= 5; n[0]++) {
+    for(n[1] = -5; n[1] <= 5; n[1]++) {
+      for(n[2] = -5; n[2] <= 5; n[2]++) {
+
+	// Here we use n for both the k sum and the n sum because they are both dimensionless
+	k2 = n[0]*n[0] + n[1]*n[1] + n[2]*n[2];
+	
+	if(k2 > 0) {
+	  m = sqrt(k2);
+	  k2 *= 4*M_PI*M_PI;
+	  sum1 += exp(-(k2 + ym*ym)/(4*alpha*alpha))/(k2 + ym*ym);
+	  sum2 += (erfc(alpha*m + ym/(2*alpha))*exp(ym*m) + erfc(alpha*m-ym/(2*alpha))*exp(-ym*m))/(2*m);
+	}
+	else {
+	  
+	  // XXX Need to explicitly take the limit!  erfc(m)/m
+	  // will have a finite value.
+
+	}
+      }
+    }
+  }
+  
+  // The non-summation terms
+  sum3 = -2*alpha/sqrt(M_PI)*exp(-ym*ym/(4*alpha*alpha)) +
+    ym*erfc(ym/(2*alpha));
+  
+  // Explicitly the zero yukawa-mass case, limit via l'Hopital
+  if(ym > 0)
+    sum3 += 4*M_PI/(ym*ym) * expm1(ym*ym/(4*alpha*alpha));
+  else
+    sum3 += 4*M_PI/(4*alpha*alpha);
+  
+  return (4*M_PI*sum1 + sum2 + sum3);
+}
+
+/*! This function computes the potential correction term by means of Ewald
+  *  summation, adjusted for Yukawa! Thanks Salin and Caillol!
+ */
+double yukawa_lattice_psi(double x[3])
+{
+  double alpha, psi;
+  double r, sum1, sum2, hdotx;
+  double dx[3];
+  int i, n[3], h[3], h2;
+
+  // KC 11/16/15
+  // We will figure out the mappings between the variables used here
+  // and those in J. Chem. Phys., Vol. 113, No. 23, 2000, Eqn. (3.1)
+  // when *their* \alpha \to 0
+  //
+  // XXX - not unit corrected!
+  
+  // KC 11/16/15
+  // Notice we use Salin's ideal transition of 5.64 with summations out to |n| = 5
+  // So we *really* overcompute it!
+  alpha = 5.64;
+
+  for(n[0] = -5, sum1 = 0; n[0] <= 5; n[0]++)
+    for(n[1] = -5; n[1] <= 5; n[1]++)
+      for(n[2] = -5; n[2] <= 5; n[2]++)
+	{
+	  for(i = 0; i < 3; i++)
+	    dx[i] = x[i] - n[i];
+	  
+	  // r (here) = r* (there)
+	  // \alpha (here) = \beta * (there)
+
+	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+	  sum1 += (erfc(alpha * r + YUKAWA_IMASS/(2*alpha)) * exp(YUKAWA_IMASS * r)) / (2*r);
+	  sum1 += (erfc(alpha * r - YUKAWA_IMASS/(2*alpha)) * exp(-YUKAWA_IMASS * r)) / (2*r);
+
+	  // Residual distinctions:
+	  // None!
+	}
+
+  for(h[0] = -5, sum2 = 0; h[0] <= 5; h[0]++)
+    for(h[1] = -5; h[1] <= 5; h[1]++)
+      for(h[2] = -5; h[2] <= 5; h[2]++)
+	{
+	  
+	  // hdotx (here) = n \dot \r* (there)
+	  // other mappings the same!
+	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
+	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
+	  if(h2 > 0)
+	    sum2 += 1 / (M_PI * h2 + YUKAWA_IMASS*YUKAWA_IMASS/(4*M_PI)) * exp(-M_PI * M_PI * h2 / (alpha * alpha) - YUKAWA_IMASS*YUKAWA_IMASS/(4*alpha*alpha)) * cos(2 * M_PI * hdotx);
+
+	  // Residual distinctions:
+	  // None!
+	}
+
+  r = sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
+
+  // Note the embedded neutralizing background
+  // The mapping holds, with no residual factors! Eqn. (2.18)
+  // Note inverted sign!
+  psi = M_PI / (alpha * alpha) - sum1 - sum2 + exp(-YUKAWA_IMASS*r)/r;
+
+  return psi;
+}
+
+// Now we have to take the derivative of the above function...
+/*! This function computes the force correction term (difference between full
+ *  force of infinite lattice and nearest image) by Ewald summation.
+ */
+void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3])
+{
+  double alpha, r2;
+  double r, val, hdotx, dx[3];
+  int i, h[3], n[3], h2;
+  double ym;
+  double fac;
+  
+  // KC 11/16/15
+  // Note our use of Salin's optimal 'alpha', and our excessive momentum-space
+  alpha = 5.64;
+  //alpha = 1.0;
+
+  if(iii == 0 && jjj == 0 && kkk == 0)
+    return;
+
+  //
+  //
+  // This should never have been called r, but instead u.
+  // Its takes values in [0, 0.5], and moves within the corner
+  // octant of one unit cell.
+  //
+
+  // KC 11/16/15
+  // Here we add in the original force, with the displacement vector
+  // normalization included. 
+  //
+  // NOTE:
+  //   r \in [0, sqrt(3)*0.5] (indexing possible top octant values)
+  //   Below is what was required to make the computed force with a call to yukawa()
+  //   equal to that computed here, with the distinct units on each.
+  //
+  r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
+  r = sqrt(r2);
+  ym = YUKAWA_IMASS;
+  // r is in dimensionless octant coordinates [0, 1/2]
+  for(i = 0; i < 3; i++)
+    force[i] = exp(-r*ym) * (ym + 1.0/r) * x[i]/r2; 
+  
+#ifndef NGRAVS_DEBUG_UNITS_CHECK
+  // KC 12/4/14
+  // Looks like this takes the first four images out in position space in each direction (so
+  // bracketing by 8 overall)
+  
+  // KC 1/19/16
+  // This does not group expressions with the same order of n together in additions.
+  // Change so that we do.
+  //
+  // Note that erfc(x > 27) = 0 in double precision
+  //
+  for(n[0] = -5; n[0] <= 5; n[0]++)
+    for(n[1] = -5; n[1] <= 5; n[1]++)
+      for(n[2] = -5; n[2] <= 5; n[2]++)
+  	{
+  	  for(i = 0; i < 3; i++)
+  	    dx[i] = x[i] - n[i];
+
+  	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+	  
+  	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
+  	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
+  	  
+	  // TYPE I
+	  // 0.5*(A + B) eventually /r^3
+	  val = 0.5*( exp(ym*r)*gsl_sf_erfc(alpha*r + ym/(2*alpha)) +
+		      exp(-ym*r)*gsl_sf_erfc(alpha*r - ym/(2*alpha)));
+
+	  // KC 1/7/16
+	  // For r > rcut, approx = 0.5*exp(ym*r)*erfc(alpha*r + ym/(2*alpha))
+	  // Overall, it will carry a factor of 1/r^2.
+
+	  // 0.5*(A + C*r) eventually /r^3
+	  /* val = 0.5*gsl_sf_erfc(alpha*r - ym/(2*alpha))*exp(-ym*r)*(1.0/r + ym);  */
+	  /* val += 0.5*gsl_sf_erfc(alpha*r + ym/(2*alpha))*exp(ym*r)*(1.0/r - ym); */
+	  
+	  // 0.5*(B + D*r) eventually /r^3
+	  
+	  // TYPE I
+  	  for(i = 0; i < 3; i++)
+  	    force[i] -= dx[i] / (r * r * r) * val;
+
+	  /* for(i = 0; i < 3; i++) */
+  	  /*   force[i] -= dx[i] / (r * r) * val; */
+
+	  // TYPE II
+	  // Now E
+	  /* val += 2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI); */
+
+	  // 0.5*ym*(C +1 D) + E eventually /r^2
+	  // 
+	  // The subtraction here could destroy accuracy?
+  	  val = 0.5*ym*(-exp(ym*r)*gsl_sf_erfc(alpha*r + ym/(2*alpha)) +
+			exp(-ym*r)*gsl_sf_erfc(alpha*r - ym/(2*alpha))) +
+  	    2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI);
+
+	  // KC 1/7/16
+	  // For r > rcut, approx = -0.5*ym*exp(ym*r)*erfc(alpha*r + ym/(2*alpha)) + 2*alpha*exp(-ym*ym/(4*alpha*alpha))/sqrt(M_PI)
+	  // eventually /r
+
+  	  // KC 11/16/110
+  	  // Note that these terms enter with one less radial power in the denominator
+  	  for(i = 0; i < 3; i++)
+  	    force[i] -= dx[i] / (r * r) * val;
+  	}
+
+  // KC 12/4/14
+  // Looks like this takes the first four images in momentum space in each diretion (again
+  // bracketing by 8 overall)
+  //
+  // KC 11/16/110
+  // Take careful note of the relative signs!!
+  // If you take the negative grad_r, then the signs are the same!
+  //
+  // KC 12/31/110
+  // My ym is already Caillol's alpha*
+  // Volker's alpha is Caillol's beta*
+  // 
+
+  // Because it only shows up in this combination now
+  ym /= 2*M_PI;
+
+  for(h[0] = -5; h[0] <= 5; h[0]++)
+    for(h[1] = -5; h[1] <= 5; h[1]++)
+      for(h[2] = -5; h[2] <= 5; h[2]++)
+  	{
+  	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
+  	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
+
+	  if(h2 > 0) {
+
+	    //	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
+	    val = 2*exp(-M_PI*M_PI*(h2 + ym*ym)/(alpha*alpha))*sin(2*M_PI*hdotx) /
+	      (h2 + ym*ym);
+
+	    for(i = 0; i < 3; i++)
+	      force[i] -= h[i] * val;
+	  }
+	}
+#endif
+}
+
+double lattice_pot_none(double x[3]) {
+
+  return 0.0;
+}
+
+void lattice_force_none(int iii, int jjj, int kkk, double x[3], double force[3]) {
+  
+  int i;
+
+  for(i = 0; i < 3; ++i)
+    force[i] = 0;
+}
+
+/*! This function computes the force correction term (difference between full
+ *  force of infinite lattice and nearest image) by Ewald summation.
+ *
+ *  Note that the r (x) values used here are dimensionless....
+ */
+void ewald_force(int iii, int jjj, int kkk, double x[3], double force[3])
+{
+  double alpha, r2;
+  double r, val, hdotx, dx[3];
+  int i, h[3], n[3], h2;
+
+  alpha = 2.0;
+
+  for(i = 0; i < 3; i++)
+    force[i] = 0;
+
+  if(iii == 0 && jjj == 0 && kkk == 0)
+    return;
+
+  r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
+
+  // KC 11/16/15
+  // Here we add in the newtonian force, with the displacement vector
+  // normalization included.  This makes me wonder if I should be including this factor in my
+  // short-range tabulations.  It would allow me to make the spline functions and acceleration
+  // functions interchangable again, and to remove an additional division in non-splined
+  // forces, which are both nice features....
+  // 
+  for(i = 0; i < 3; i++)
+    force[i] += x[i] / (r2 * sqrt(r2));
+
+  // KC 12/4/14
+  // Looks like this takes the first four images out in position space in each direction (so 
+  // bracketing by 8 overall)
+  for(n[0] = -4; n[0] <= 4; n[0]++)
+    for(n[1] = -4; n[1] <= 4; n[1]++)
+      for(n[2] = -4; n[2] <= 4; n[2]++)
+	{
+	  for(i = 0; i < 3; i++)
+	    dx[i] = x[i] - n[i];
+
+	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+
+	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
+
+	  for(i = 0; i < 3; i++)
+	    force[i] -= dx[i] / (r * r * r) * val;
+	}
+
+  // KC 12/4/14
+  // Looks like this takes the first four images in momentum space in each diretion (again
+  // bracketing by 8 overall)
+  for(h[0] = -4; h[0] <= 4; h[0]++)
+    for(h[1] = -4; h[1] <= 4; h[1]++)
+      for(h[2] = -4; h[2] <= 4; h[2]++)
+	{
+	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
+	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
+
+	  if(h2 > 0)
+	    {
+	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
+
+	      for(i = 0; i < 3; i++)
+		force[i] -= h[i] * val;
+	    }
+	}
+}
+
+
+
+///////////////// END GENERALIZED FORCE AND GREENS FUNCTIONS ////////////
+//
+// Below this are things you should not need to modify
+//
+/////////////////////////////////////////////////////////////////////////
+
+double normKtoGridK(double normk) {
+
+  // See comments below for gridKtoNormK
+  return normk * All.BoxSize/ (4*M_PI*All.Asmth[0]);
+}
+
+double gridKtoNormK(double gridk) {
+
+  // Since the correct coefficient for normk exponential suppression
+  // is 1/2 (at least in the Newtonian case, but this should not change)
+  // but that for gridk is (2 * M_PI) * All.Asmth[0] / All.BoxSize
+  // this is the conversion
+
+  return 4*M_PI*All.Asmth[0] * gridk / All.BoxSize;
+  
 
 }
+
+void kConversionUnitTest(void) {
+
+#if defined NGRAVS_KUNIT_TEST
+  double k, normk, gridk, asmthfac2, normkexpr, gridkexpr;
+  double k_min, k_max;
+  int i;
+  struct ngravsInterpolant *s = ngravsPeriodicTable;
+  FILE *fhand;
+  char buf[512];
+
+  snprintf(buf, 512, "%s/ngravs_kconv_%s.txt", All.OutputDir, NgravsNames[0][0]);
+  fhand = fopen(buf, "w+t");
+  	      
+  if(!fhand) {
+    printf("ngravs: could not open %s for writing!\n", buf);
+    endrun(1014);
+  }
+
+  // First verify normk expression units (in 1000 increments)
+  asmthfac2 = 2*M_PI*All.Asmth[0] / All.BoxSize;
+  fprintf(fhand, "# kConversionTest, PMGRID MESH CELL UNITS: utorwpi = %.15e\n", 1.0/(2*M_PI*All.Asmth[0]));
+  asmthfac2 *= asmthfac2;
+
+  // Remember, we don't want to go out to half the damn box.  We only want to go out to the cutoff.
+  // All.Rcut[0] is set to mesh cells, but in r space.  
+  //
+  // So it sets the lower bound for k
+  //  
+  for(k = All.BoxSize/All.Rcut[0]; k < PMGRID/2.0; k += PMGRID/(double)NTAB) {
+    
+    normk = gridKtoNormK(k);
+    if(fabs(normk) > 0) {
+      gridkexpr = exp(-k*k*asmthfac2)*(*GreensFxns[0][0])(1.0, 1.0, k*k, k, 1);
+      normkexpr = fourierIntegrand(normk, NormedGreensFxns[0][0], 0.5)/(normk*normk);
+      fprintf(fhand, "%.15e %.15e %.15e %.15e\n", k, normk, gridkexpr, normkexpr);
+    }
+  }
+
+  fprintf(fhand, "\n# kConversionTest, INTERPOLATION UNITS. norm = %.15e\n", 2.0*M_PI * s->ntab * 6.0 * s->ol/(3.0 * s->ngravs_tpm_n));
+
+  // Again, mTox(NTAB, ngravsPeriodicTable) is the cutoff in dimensionless position space.  
+  // k_min = 1.0/mTox(NTAB, ngravsPeriodicTable);
+  // k_max = 1.0/mTox(0, ngravsPeriodicTable);
+  for(i = 0; i < ngravsPeriodicTable->ngravs_tpm_n/2; ++i) {
+
+    k = jTok(i, 0.5, ngravsPeriodicTable);
+    gridk = normKtoGridK(k);
+    normkexpr = fourierIntegrand(k, NormedGreensFxns[0][0], 0.5)/(k*k);
+    gridkexpr = exp(-gridk*gridk*asmthfac2)*(*GreensFxns[0][0])(1.0, 1.0, gridk*gridk, gridk, 1);
+    
+    fprintf(fhand, "%.15e %.15e %.15e %.15e\n", gridk, k, gridkexpr, normkexpr);
+  }
+
+  fclose(fhand);
+  //  endrun(6789);
+#endif
+}
+
+///////////////// BEGIN FOURIER INTEGRATION ROUTINES /////////////////////
+//
+// These routines can compute the reqired shortrange tabulations of the generic
+// force laws from the k-space greens functions to very near machine accuracy.  
+//
+// Please see the ngravs paper for detailed discussion of the behaviour here
+//
+
+FLOAT jTok(int m, double Z, struct ngravsInterpolant *s) {
+
+  return 2.0 * M_PI * m * s->ntab * 6.0 * s->ol/(3.0 * s->ngravs_tpm_n);
+}
+
+FLOAT mTox(int j, struct ngravsInterpolant *s) {
+  
+  return 3.0*j/(6.0 * s->ntab * s->ol);
+}
+
+int gadgetToFourier(int j, struct ngravsInterpolant *s) {
+
+  return s->ol * (6*j + 3);
+}
+
+int fourierToGadget(int i, struct ngravsInterpolant *s) {
+
+  return (i - 3 * s->ol)/(6 * s->ol);
+}
+
+FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z) {
+  
+  FLOAT k2 = k*k;
+  
+  return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
+}
+
+//
+// Sigh.  Fourier routines need to be reconsidered from the point of view of 
+// units being in MESH CELLS, beacuse that is what the normKGreen works in, 
+// and if you look at pm_periodic, what k2 takes values in :/
+//
+// You didn't see this problem with Newton because normKGreen = 1.
+//
+int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI) {
+  
+  fftw_complex *in, *out;
+  int m,j;
+  double sum, norm;
+
+  // KC 12/3/15
+  // Run the debug
+  kConversionUnitTest();
+
+  in = (fftw_complex *)malloc(sizeof(fftw_complex) * s->ngravs_tpm_n);
+  out = (fftw_complex *)malloc(sizeof(fftw_complex) * s->ngravs_tpm_n);
+  if(!in || !out)
+    return 1;
+  
+  /* // Debug your mappings?! */
+  /* printf("s->ntab: %d\nNGRAVS_TPM_N: %d\nNGRAVS_TPM_N/2: %d\n3/(2s->ntab): %f\n", s->ntab, s->ngravs_tpm_n, s->ngravs_tpm_n/2, 3.0/(2*s->ntab)); */
+  /* for(m = 0; m < s->ntab; ++m) { */
+  /*   printf("%d %d %d %f\n", m, gadgetToFourier(m, s), fourierToGadget(gadgetToFourier(m, s), s), mTox(gadgetToFourier(m, s), s)); */
+  /* } */
+  
+  /* printf("\n"); */
+  /* for(j = 0; j < NGRAVS_TPM_N/2; ++j) { */
+  /*   printf("%d %d %d %f %d\n", j, fourierToGadget(j, s), gadgetToFourier(fourierToGadget(j, s)), mTox(j, s), gadgetToFourier(fourierToGadget(j, s), s) - j); */
+  /* } */
+  /* exit(0); */
+
+  // Zero out all arrays first
+  for(j = 0; j < s->ngravs_tpm_n; ++j) {
+    in[j].re = 0;
+    in[j].im = 0;
+  }
+
+  // 1) FFTW needs this loaded in wonk order
+  // Note we need zero power in order to compute the 
+  // potential term correctly.
+  in[0].re = fourierIntegrand(jTok(0, Z, s), normKGreen, Z);
+
+  for(j = 1; j < s->ngravs_tpm_n/2; ++j) {
+
+    in[j].re = fourierIntegrand(jTok(j, Z, s), normKGreen, Z);
+    in[s->ngravs_tpm_n - j].re = fourierIntegrand(jTok(j, Z, s), normKGreen, Z);
+  }
+
+  // 2) Xform
+  fftw_one(s->plan, in, out);
+  norm = 2.0*M_PI * s->ntab * 6.0 * s->ol/(3.0 * s->ngravs_tpm_n);
+
+  /* // Debug */
+  /* // Make sure the transform is behaving reasonably */
+  /* for(m = 0; m < s->ngravs_tpm_n; ++m) */
+  /*   printf("%.15f %.15f\n", mTox(m, s), out[m].re*norm); */
+  /* exit(0); */
+
+  // ???
+  sum = s->ngravs_tpm_n;
+
+  for(m = 0; m < s->ntab; ++m)
+    oRes[m] = out[gadgetToFourier(m, s)].re * norm;
+
+  // 3) Integrate so as to constrain the error correctly:
+  // Newton-Cotes 4-point rule
+  // Run the sum at double precision, though we may assign to lower precision
+  // First term of in[] should be zero.
+  in[0].re = 0.0;
+  sum = 0.0;
+  for(m = 0; m < s->ngravs_tpm_n-3; m += 3) {
+    sum += (mTox(m+3, s) - mTox(m, s)) * 0.125 * norm * (out[m].re + 3.0*out[m+1].re + 3.0*out[m+2].re + out[m+3].re);
+    
+    // Put it where you'd expect to find it
+    in[m/3+1].re = sum;
+  }
+
+  // 3.5) Downsample
+  for(m = 0; m < s->ntab; ++m)
+    oResI[m] = in[gadgetToFourier(m, s)/3].re;
+
+  /* // Debug */
+  /* // Make sure the transform is behaving reasonably */
+  /* for(m = 0; m < s->ntab; ++m) */
+  /*   printf("%.15f %.15f\n", mTox(gadgetToFourier(m, s)), oResI[m]); */
+  /* exit(0); */
+
+  free(in);
+  free(out);
+  return 0;
+}
+
+/*! Create a workspace for a table with ntab entries, which goes len deep
+ *  into x-space, and oversamples at a frequency of ol (so ol 2 is 2x as many 
+ *  samples as would be needed to critically sample */
+struct ngravsInterpolant *ngravsConvolutionInit(int ntab, int len, int ol) {
+
+  struct ngravsInterpolant *s;
+
+  if(! (s = (struct ngravsInterpolant *) malloc(sizeof(struct ngravsInterpolant)))) {
+
+    printf("ngravs: could not allocate table structure... something really bad is happening because I'm tiny!");
+    endrun(1045);
+  }
+  
+  s->ntab = ntab;
+  s->len = len;
+  s->ol = ol;
+  s->ngravs_tpm_n = 12*ntab*ol*len-6*ol*len+2;
+  s->plan = fftw_create_plan(s->ngravs_tpm_n, FFTW_BACKWARD, FFTW_ESTIMATE);
+
+  printf("ngravs: max_k = %.15e\n", jTok(s->ngravs_tpm_n/2, 0.5, s));
+
+  return s;
+}
+
+void ngravsConvolutionFree(struct ngravsInterpolant *s) {
+
+  fftw_destroy_plan(s->plan);
+  free(s);
+}
+
+FLOAT hermiteSpline(FLOAT u, struct ngravsInterpolant s, FLOAT *tab, FLOAT *dtab) {
+
+  int i = 0;
+
+  // Note that u should be rescaled to [0,1] a priori
+  // Use factorized form to keep addition of terms of roughly the same order  
+  return tab[i] * (1 + 2*u) * (1-u) * (1-u) + 
+    dtab[i] * u * (1-u) * (1-u) +
+    tab[i+1] * u*u*(3-2*u) +
+    dtab[i+1] * u*u*(u - 1);
+}
+
+//////////////////////// END FOURIER INTEGRATION ROUTINES //////////
 
 /*! Establish the mapping between particle type and the native
  *  gravitational force between two particles of this type.
@@ -181,6 +1480,7 @@ void init_grav_maps(void) {
 
   int i, j;
   int counts[N_GRAVS];
+  int n;
 
 #ifdef BAMTEST
   double q;
@@ -210,7 +1510,16 @@ void init_grav_maps(void) {
   // KC 10/17/14
   // Code consistency checks
   if(ThisTask == 0) {
-    
+
+#ifdef PLACEHIRESREGION
+    printf("ngravs: High-resolution mesh implementation in progress.  Email kcroker@phys.hawaii.edu for status.");
+    endrun(1000);
+#endif
+
+#if defined PMGRID && !defined PERIODIC
+    printf("ngravs: In this version, non-periodic k-space greens determined by FFT of *tabulated* values.  Full transformation implementation in progress.  For now, verify sanity of outputs!");
+#endif
+
 #if !defined PEANOHILBERT && (defined PMGRID || defined PLACEHIRESREGION || defined PERIODIC)
     printf("ngravs: Gravitational type ordering required for ngravs extension of Fourier mesh code.  This ordering has been implemented on top of Peano-Hilbert ordering within the local task.  Please enable PEANOHILBERT and recompile.\n");
     endrun(1000);
@@ -387,349 +1696,4 @@ void init_grav_maps(void) {
 
     }
   }
-}
-
-/*! This is no gravity.  It returns 0.0 regardless of input
- */
-double none(double target, double source, double h, double r, long N){ 
-
-  return 0.0;
-}
-
-// KC 10/18/14
-//
-// WARNING: Note that, presumably to eliminate a plethora of unnecessary negations,
-//          Gadget-2 works with the positive of the acceleration.  
-//
-// ALL ACCELERATION SIGNS APPEARING HERE ARE TO BE INVERTED FROM WHAT YOU NORMALLY WOULD WRITE
-//
-// WARNING: These give the normalized accelerations!  They include an additional factor of 1/r
-//          so that taking the vector magnitude of this function's return value times
-//          the dx_i gives the correct force.
-//
-/*! This is Newtonian gravity, and is the usual baryon-baryon interaction 
- */
-double newtonian(double target, double source, double h, double r, long N) {
-
-  // Note newtonian does not violate SEP
-  return source / (r*r*r);
-} 
-
-/*! This is **inverted** Newtonian gravity, for use in the Hohmann & Wolfarth scenario
- */
-double neg_newtonian(double target, double source, double h, double r, long N) {
-
-  // Note newtonian does not violate SEP
-  return -source / (r*r*r);
-} 
-
-/*! This is the usual Newtonian gravitational potential
- *
- */
-double newtonian_pot(double target, double source, double h, double r, long N) {
-
-  return source / r;
-}
-
-/*! This is the **inverted** Newtonian potential
- */
-double neg_newtonian_pot(double target, double source, double h, double r, long N) {
-
-  return -source / r;
-}
-
-// KC 10/18/14
-// NOTE: Green's functions are not inverted from their usual sign
-/*! This is the box periodic Green's function for a point source of unit mass
- */
-double pgdelta(double kx, double ky, double kz, double h, long N) {
-
-  return 1.0/(kx * kx + ky * ky + kz * kz);
-}
-
-/*! This is the **inverted** box periodic Green's function for a point source of unit mass, 
- *  for use in the Hohmann & Wolfarth scenario
- */
-double neg_pgdelta(double kx, double ky, double kz, double h, long N) {
-
-  return -1.0/(kx * kx + ky * ky + kz * kz);
-}
-
-/*! This is the Plummer spline used by GADGET-2
- */
-double plummer(double target, double source, double h, double r, long N) {
-
-  double h_inv;
-
-  h_inv = 1/h;
-  
-  r *= h_inv;
-  if(r < 0.5)
-    return source * h_inv * h_inv * h_inv * 
-      (10.666666666667 + r * r * (32.0 * r - 38.4));
-  else
-    return source * h_inv * h_inv * h_inv * 
-      (21.333333333333 - 48.0 * r +
-       38.4 * r * r - 10.666666666667 * r * r * r - 0.066666666667 / (r * r * r));
-}
-
-/*! This is the "inverted" Plummer spline for use in the Hohmann & Wolfarth scenario
- */
-double neg_plummer(double target, double source, double h, double r, long N) {
-
-  double h_inv;
-
-  // KC 10/26/14
-  // It remains a question whether calling a fxn with 5 things on the stack is going to be 
-  // slower than just multiplying things out every time and calling something with 3 things
-  h_inv = 1/h;
-  
-  r *= h_inv;
-  if(r < 0.5)
-    return -source * h_inv * h_inv * h_inv * 
-      (10.666666666667 + r * r * (32.0 * r - 38.4));
-  else
-    return -source * h_inv * h_inv * h_inv * 
-      (21.333333333333 - 48.0 * r +
-       38.4 * r * r - 10.666666666667 * r * r * r - 0.066666666667 / (r * r * r));
-}
-
-/*! This is the potential of the Plummer spline used by GADGET-2
- */
-double plummer_pot(double target, double source, double h, double r, long N) {
-  
-  double h_inv;
-  
-  h_inv = 1/h;
-  r *= h_inv;
-
-  if(r < 0.5)
-    return source * h_inv * (-2.8 + r * r * (5.333333333333 + r * r * (6.4 * r - 9.6)));
-  else
-    return source * h_inv * 
-      (-3.2 + 0.066666666667 / r + r * r * (10.666666666667 +
-					    r * (-16.0 + r * (9.6 - 2.133333333333 * r))));
-}
-
-/*! This is the negative potential of the Plummer spline, for use in Hohmann & Wolfarth scenario
- */
-double neg_plummer_pot(double target, double source, double h, double r, long N) {
-  
-  double h_inv;
-  
-  h_inv = 1/h;
-  r *= h_inv;
-
-  if(r < 0.5)
-    return -source * h_inv * (-2.8 + r * r * (5.333333333333 + r * r * (6.4 * r - 9.6)));
-  else
-    return -source * h_inv * 
-      (-3.2 + 0.066666666667 / r + r * r * (10.666666666667 +
-					    r * (-16.0 + r * (9.6 - 2.133333333333 * r))));
-}
-
-/*! This is Newtonian gravity with a Yukawa modification
- * c.f. Shirata, Yoshida, et. al 2005
- */
-double newyukawa(double target, double source, double h, double r, long N) {
-
-#define YUKAWA_ALPHA 1
-#define YUKAWA_LAMBDA_INV 1e-2
-
-  return source / (r * r * r) * -YUKAWA_ALPHA * expm1f(-r*YUKAWA_LAMBDA_INV);
-}
-
-/*! This is the BAM-BAM interaction
- * c.f. http://arxiv.org/abs/1408.2702
- */
-double bambam(double target, double source, double h, double r, long N) {
-  
-  // Note apparent SEP violation
-  // Note naturally softened
-  // Note adjustment of the internal scale by N.  Thus the scale is determined by the average mass content of the cell.
-  // In the case where the all BAM halos have the same mass parameter, this correction is the *exact* correction.
-
-  double eta, rho;
-  double eta3;
-  double reta, reta2;
-
-  eta = 4.0*M_PI*BAM_EPSILON/(target+source/N);
-  rho = 2*target*source/M_PI;
-
-  reta = r * eta;
-  reta2 = reta * reta;
-  eta3 = eta * eta * eta;
- 
-  if(reta < 0.1) {
-    
-    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
-    // we want to divide out by the r
-    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
-    // the differentiate termwise to get the force
-    // also multiply by -1: F \def -\grad pot
-    // also must divide by an additional 1/r to give the unit vector in code!
-    //
-    return rho * eta3 * (2.0/3.0 - 4.0*reta2/5.0 + 6.0*reta2*reta2/7.0);
-  }
-  else
-    return rho * eta3 * (atan(reta)/(reta2*reta) - 1.0/(reta2*(1+reta2)));
-}
-
-/*! This is the BAM-Baryon interaction sourced by a BAM.
- * Note that here the target is a baryon!!
- * The force laws are necessarily symmetric, but the computation GADGET-2 uses
- * is not the force, but the adjustment to the acceleration of the target.  
- * So you have to be careful here. 
- */
-double sourcebambaryon(double target, double source, double h, double r, long N) {
-
-  double eta, rho;
-  double eta3;
-  double reta, reta2;
-
-  rho = 2*target*source/M_PI;
-  eta = 4.0*M_PI*BAM_EPSILON*N/source;
-  
-  reta = r * eta;
-  reta2 = reta * reta;
-  eta3 = eta * eta * eta;
- 
-  if(reta < 0.1) {
-    
-    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
-    // we want to divide out by the r
-    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
-    // the differentiate termwise to get the force
-    // also multiply by -1: F \def -\grad pot
-    // also must divide by an additional 1/r to give the unit vector in code!
-    //
-    return rho * eta3 * (2.0/3.0 - 4.0*reta2/5.0 + 6.0*reta2*reta2/7.0);
-  }
-  else
-    return rho * eta3 * (atan(reta)/(reta2*reta) - 1.0/(reta2*(1+reta2)));
-}
-
-/*! This is the BAM-Baryon interaction sourced by a baryon.
-  Note that here the target is a BAM!!
-  The force laws are necessarily symmetric, but the computation GADGET-2 uses
-  is not the force, but the adjustment to the acceleration of the target.  
-  So you have to be careful here.
- */
-double sourcebaryonbam(double target, double source, double h, double r, long N) {
-
-  // Note apparent SEP violation
-  // Note naturally softened
-  double eta, rho;
-  double eta3;
-  double reta, reta2;
-
-  eta = 4.0*M_PI*BAM_EPSILON/target;
-  rho = 2*target*source/M_PI;
-
-  reta = r * eta;
-  reta2 = reta * reta;
-  eta3 = eta * eta * eta;
- 
-  if(reta < 0.1) {
-    
-    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
-    // we want to divide out by the r
-    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
-    // the differentiate termwise to get the force
-    // also multiply by -1: F \def -\grad pot
-    // also must divide by an additional 1/r to give the unit vector in code!
-    //
-    return rho * eta3 * (2.0/3.0 - 4.0*reta2/5.0 + 6.0*reta2*reta2/7.0);
-  }
-  else
-    return rho * eta3 * (atan(reta)/(reta2*reta) - 1.0/(reta2*(1+reta2)));
-}
-
-/*! This is the BAM-BAM potential (or free-space Greens fxn in position representation)
- * c.f. http://arxiv.org/abs/1408.2702
- */
-double bambam_pot(double target, double source, double h, double r, long N) {
-
-  // Use a 7th order Taylor polynomial if tan(x) x < 1/10
-  // The error at x = 1/10 for tan(x) is then < 10^-7
-  // Its not beyond double precision, but its almost at float.
-  //
-  // This will be kinda slow...
-  //
-  double eta;
-  double rho;
-  double reta, reta2, reta4;
-
-  rho = 2*target*source/M_PI;
-
-  eta = 4.0*M_PI*BAM_EPSILON/(target+source/N);
-  reta = r * eta;
-  reta2 = reta * reta;
-  reta4 = reta2 * reta2;
-
-  if(reta < 0.1) {
-
-    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
-    // we want to divide out by the r
-    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
-    //
-    return rho * eta*(1 - reta2/3.0 + reta4/5.0 - reta2*reta4/7.0);
-  }
-  else
-    return rho * atan(reta)/r;
-}
-
-// Now note that the advantage of the simple taylor series is that it is easy to compute the 
-// derivative and turn that into a force.
-
-/*! This is the BAM-Baryon potential.  Here a baryon acts as a source.
- */
-double sourcebaryonbam_pot(double target, double source, double h, double r, long N) {
-
-  double eta;
-  double rho;
-  double reta, reta2, reta4;
-  
-  rho = 2*target*source/M_PI;
-  eta = 4.0*BAM_EPSILON*M_PI*N/target;
-  reta = r * eta;
-  reta2 = reta * reta;
-  reta4 = reta2 * reta2;
-
-  if(reta < 0.1) {
-
-    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
-    // we want to divide out by the r
-    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
-    //
-    return rho * eta*(1 - reta2/3.0 + reta4/5.0 - reta2*reta4/7.0);
-  }
-  else
-    return rho * atan(reta)/r;
-}
-
-/*! This is the BAM-Baryon potential.  Here a BAM acts as a source.
- */
-double sourcebambaryon_pot(double target, double source, double h, double r, long N) {
-
-  double eta;
-  double rho;
-  double reta, reta2, reta4;
-  
-  rho = 2*target*source/M_PI;
-  eta = 4.0*BAM_EPSILON*M_PI*N/source;
-  reta = r * eta;
-  reta2 = reta * reta;
-  reta4 = reta2 * reta2;
-
-  if(reta < 0.1) {
-
-    // orig taylor: reta - (reta)^3/3 + (reta)^5/5 - (reta)^7/7
-    // we want to divide out by the r
-    // so: rho*(eta - r^2eta^3/3 + r^4eta^5/5 - r^6eta^7/7)
-    //
-    return rho * eta*(1 - reta2/3.0 + reta4/5.0 - reta2*reta4/7.0);
-  }
-  else
-    return rho * atan(reta)/r;
 }

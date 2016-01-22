@@ -138,7 +138,6 @@ void pm_init_periodic_allocate(int dimprod)
   int dimprodmax;
   double bytes_tot = 0;
   size_t bytes;
-  int n, m;
 
   MPI_Allreduce(&dimprod, &dimprodmax, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
 
@@ -184,7 +183,6 @@ void pm_init_periodic_allocate(int dimprod)
  */
 void pm_init_periodic_free(void)
 {
-  int n,m;
   /* allocate the memory to hold the FFT fields */
   free(workspace);
   free(forcegrid);
@@ -240,7 +238,7 @@ void pmforce_periodic(void)
   fac *= 1 / (2 * All.BoxSize / PMGRID);	/* for finite differencing */
 
   // KC 10/20/14
-  // Determine the ranges outside the main loop!?
+  // Determine the ranges outside the main loop!? (yes)
   /* first, establish the extension of the local patch in the PMGRID  */
   for(j = 0; j < 3; j++)
     {
@@ -260,6 +258,8 @@ void pmforce_periodic(void)
     for(j = 0; j < 3; j++)
       {
 	// Clear this out before we start accumulating
+	// (Prev Gadget2 just overwrote this because it performed one assignment. 
+	//  we need to accumulate over all types)
 	P[i].GravPM[j] = 0;
 
 	slab = to_slab_fac * P[i].Pos[j];
@@ -452,66 +452,79 @@ void pmforce_periodic(void)
 
 	      k2 = kx * kx + ky * ky + kz * kz;
 
-	      if(k2 > 0)
-		{
-		  /* do deconvolution */
-		  
-		  fx = fy = fz = 1;
-		  if(kx != 0)
-		    {
-		      fx = (M_PI * kx) / PMGRID;
-		      fx = sin(fx) / fx;
-		    }
-		  if(ky != 0)
-		    {
-		      fy = (M_PI * ky) / PMGRID;
-		      fy = sin(fy) / fy;
-		    }
-		  if(kz != 0)
-		    {
-		      fz = (M_PI * kz) / PMGRID;
-		      fz = sin(fz) / fz;
-		    }
-		  ff = 1 / (fx * fy * fz);
+	      /* do deconvolution */
+	      if(k2 > 0) {
+		fx = fy = fz = 1;
+		if(kx != 0)
+		  {
+		    fx = (M_PI * kx) / PMGRID;
+		    fx = sin(fx) / fx;
+		  }
+		if(ky != 0)
+		  {
+		    fy = (M_PI * ky) / PMGRID;
+		    fy = sin(fy) / fy;
+		  }
+		if(kz != 0)
+		  {
+		    fz = (M_PI * kz) / PMGRID;
+		    fz = sin(fz) / fz;
+		  }
+		ff = 1 / (fx * fy * fz);
 		 
-		  // KC 10/5/14
-		  // The CIC charge assignment (sampling along a mesh of a CIC continuous charge distribution 
-		  // implied by the actual point charges).  The implied continuous charge distribution is 
-		  // given by the space density convolved with the CIC kernel W(x-x') (c.f. Hockney 5-165)
-		  //
-		  // The Fourier space CIC kernel is (1/ff)**2    
-		  //
-		  // We divide by the CIC kernel because we are deconvolving
-		  //
-		  // We divide by the CIC kernel twice: once comes from the charge assignment procedure above
-		  // a second time comes from the force interpolation procedure
-		  //
-		  // We also apply the short range truncation, here in k-space
-		  //
-		  // NOTE: Transposed order of indicies due to FFTW in k-space
-		  smth = -exp(-k2 * asmth2) * ff * ff * ff * ff;
+		// KC 10/5/14
+		// The CIC charge assignment (sampling along a mesh of a CIC continuous charge distribution 
+		// implied by the actual point charges).  The implied continuous charge distribution is 
+		// given by the space density convolved with the CIC kernel W(x-x') (c.f. Hockney 5-165)
+		//
+		// The Fourier space CIC kernel is (1/ff)**2    
+		//
+		// We divide by the CIC kernel because we are deconvolving
+		//
+		// We divide by the CIC kernel twice: once comes from the charge assignment procedure above
+		// a second time comes from the force interpolation procedure
+		//
+		// We also apply the short range truncation, here in k-space
+		//
+		// This is the only place asmth has entered anywhere!
+		smth = (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, sqrt(k2), 1);
+		smth *= -exp(-k2*asmth2) * ff * ff * ff * ff;
 
-		  ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-
-		  smth *= (*GreensFxns[nA][nB])(kx, ky, kz, 0.0, 1);
-		  /* end deconvolution */
+		// NOTE: Transposed order of indicies due to FFTW in k-space
+		ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+		
+		// KC 27.9.15
+		// 
+		// CONSTRAINT: 
+		// We send the MassTable masses as passive and active masses so that the 
+		// scale of the force law can be appropriately set.  If the source mass appears
+		// then it must be the same for all within the species.  If the target mass appears,
+		// then ALL species must have uniform masses across their species.
+		//
+		// Note that the greens function can only ever depend on |k| since the force is 
+		// isotropic!
+		//
 		  
-		  // KC 12/4/14
-		  // Note that smth contains the exponential factor and the deconvolution stuff
-		  fft_of_rhogrid[ip].re *= smth;
-		  fft_of_rhogrid[ip].im *= smth;
-		}
+		/* end deconvolution */
+		  
+		// KC 12/4/14
+		// Note that smth contains the exponential factor and the deconvolution stuff
+		fft_of_rhogrid[ip].re *= smth;
+		fft_of_rhogrid[ip].im *= smth;
+	      }
 	    }
+	    
       
+      // Don't explicily kill 0 power?
       if(slabstart_y == 0)
-	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
+      	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
 
       // KC 10/5/14 
       // This will produce the potential in real space
       /* Do the FFT to get the potential */
       rfftwnd_mpi(fft_inverse_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
 
-      /* Now rhog rid holds the potential */
+      /* Now rhogrid holds the potential */
       /* construct the potential for the local patch */
       dimx = meshmax[0] - meshmin[0] + 6;
       dimy = meshmax[1] - meshmin[1] + 6;
@@ -1015,39 +1028,41 @@ void pmpotential_periodic(void)
 
 	      k2 = kx * kx + ky * ky + kz * kz;
 
-	      if(k2 > 0)
+	      // KC 12/31/15
+	      // Always include k2==0 now, in general we may have finite power in k=0...
+	      smth = -exp(-k2 * asmth2) * (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, sqrt(k2), 1) * fac;
+	      /* do deconvolution */
+	      fx = fy = fz = 1;
+	      if(kx != 0)
 		{
-		  // KC 10/5/14
-		  smth = -exp(-k2 * asmth2) * (*GreensFxns[nA][nB])(kx, ky, kz, 0.0, 1) * fac;
-		  /* do deconvolution */
-		  fx = fy = fz = 1;
-		  if(kx != 0)
-		    {
-		      fx = (M_PI * kx) / PMGRID;
-		      fx = sin(fx) / fx;
-		    }
-		  if(ky != 0)
-		    {
-		      fy = (M_PI * ky) / PMGRID;
-		      fy = sin(fy) / fy;
-		    }
-		  if(kz != 0)
-		    {
-		      fz = (M_PI * kz) / PMGRID;
-		      fz = sin(fz) / fz;
-		    }
-		  ff = 1 / (fx * fy * fz);
-		  smth *= ff * ff * ff * ff;
-		  /* end deconvolution */
-
-		  ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-		  fft_of_rhogrid[ip].re *= smth;
-		  fft_of_rhogrid[ip].im *= smth;
+		  fx = (M_PI * kx) / PMGRID;
+		  fx = sin(fx) / fx;
 		}
+	      if(ky != 0)
+		{
+		  fy = (M_PI * ky) / PMGRID;
+		  fy = sin(fy) / fy;
+		}
+	      if(kz != 0)
+		{
+		  fz = (M_PI * kz) / PMGRID;
+		  fz = sin(fz) / fz;
+		}
+	      ff = 1 / (fx * fy * fz);
+	      smth *= ff * ff * ff * ff;
+	      /* end deconvolution */
+
+	      ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+	      fft_of_rhogrid[ip].re *= smth;
+	      fft_of_rhogrid[ip].im *= smth;
 	    }
 
-      if(slabstart_y == 0)
-	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
+      // 12/31/15
+      // Check for nan.  If so, set DC power to zero (this was what was done previously)
+      if(slabstart_y == 0) {
+	if(fft_of_rhogrid[0].re != fft_of_rhogrid[0].re) // IEEE spec!
+	  fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
+      }
 
       /* Do the FFT to get the potential */
 

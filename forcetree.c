@@ -7,7 +7,7 @@
 
 #include "allvars.h"
 #include "proto.h"
-
+#include "ngravs.h"
 
 /*! \file forcetree.c
  *  \brief gravitational tree and code for Ewald correction
@@ -26,30 +26,30 @@
 static int last;
 
 
-
-/*! length of lock-up table for short-range force kernel in TreePM algorithm */
-#define NTAB 1000
-/*! variables for short-range lookup table */
-static float tabfac, shortrange_table[NTAB], shortrange_table_potential[NTAB];
+#ifdef PMGRID
+// KC 11/4/15
+// Note that we use FLOAT here because if the FFTW routines expect the wrong width, 
+// you're going to have a bad time
+static FLOAT shortrange_fourier_pot[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_force[N_GRAVS][N_GRAVS][NTAB];
+extern struct ngravsInterpolant *ngravsPeriodicTable;
+#endif
 
 /*! toggles after first tree-memory allocation, has only influence on log-files */
 static int first_flag = 0;
-
-
 
 
 #ifdef PERIODIC
 /*! Macro that maps a distance to the nearest periodic neighbour */
 #define NEAREST(x) (((x)>boxhalf)?((x)-boxsize):(((x)<-boxhalf)?((x)+boxsize):(x)))
 /*! Size of 3D lock-up table for Lattice sum correction force */
-#define EN  64
+
 /*! 3D lock-up table for Lattice sum correction to force and potential. Only one
  *  octant is stored, the rest constructed by using the symmetry
  */
-static FLOAT fcorrx[N_GRAVS][N_GRAVS][EN + 1][EN + 1][EN + 1];
-static FLOAT fcorry[N_GRAVS][N_GRAVS][EN + 1][EN + 1][EN + 1];
-static FLOAT fcorrz[N_GRAVS][N_GRAVS][EN + 1][EN + 1][EN + 1];
-static FLOAT potcorr[N_GRAVS][N_GRAVS][EN + 1][EN + 1][EN + 1];
+static double fcorrx[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
+static double fcorry[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
+static double fcorrz[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
+static double potcorr[N_GRAVS][N_GRAVS][NGRAVS_EN + 1][NGRAVS_EN + 1][NGRAVS_EN + 1];
 static double fac_intp;
 #endif
 
@@ -357,7 +357,7 @@ void force_insert_pseudo_particles(void)
 	DomainMoment[i].s[2][j] = Nodes[index].center[2];
 	DomainMoment[i].mass[j] = 0;
 	
-#ifdef NGRAVS_ACCUMULATOR
+#ifdef N_GRAVS_ACCUMULATOR
 	DomainMoment[i].Nparticles[j] = 0;
 #endif
       }
@@ -1538,10 +1538,8 @@ int force_treeevaluate(int target, int mode, double *latticecountsum)
 	// A single particle contributes
 	r = sqrt(r2[sG]);
 	  
-	// KC 1/31/15
-	// AccelFxns now return the normalized value in one step...
 	if(r >= h)
-	  fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], h, r, 1);
+	  fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1) / r;
 	else
 	  fac = (*AccelSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
 	
@@ -1563,9 +1561,9 @@ int force_treeevaluate(int target, int mode, double *latticecountsum)
 	  // KC 10/18/14
 	  if(r >= h) {
 #ifdef NGRAVS_ACCUMULATOR
-	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], h, r, Nparticles[i]);
+	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], r2[i], r, Nparticles[i]) / r;
 #else
-	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], h, r, 1);
+	    fac = (*AccelFxns[pgravtype][i])(pmass, mass[i], r2[i], r, 1) / r;
 #endif
 	  }
 	  else
@@ -1641,7 +1639,9 @@ int force_treeevaluate_shortrange(int target, int mode)
   double r2min, r2max;
   char nintflag;
   int pgravtype, whichGrav;
-
+  double r2inv;
+  double utor2wpi;
+  
 #ifdef NGRAVS_ACCUMULATOR
   long Nparticles[N_GRAVS];
 #endif
@@ -1707,6 +1707,9 @@ int force_treeevaluate_shortrange(int target, int mode)
   rcut2 = rcut * rcut;
 
   asmthfac = 0.5 / asmth * (NTAB / 3.0);
+
+  // KC 11/3/15
+  utor2wpi = 1.0/(M_PI*4*asmth*asmth);
 
   // KC 1/31/15
   // We will be computing these in the individual splines anyway
@@ -1822,7 +1825,7 @@ int force_treeevaluate_shortrange(int target, int mode)
 	  }
 	
 	  sG = -1;
-
+	  
 	  if(r2min > rcut2)
 	    {
 	      /* check whether we can stop walking along this branch */
@@ -1955,64 +1958,72 @@ int force_treeevaluate_shortrange(int target, int mode)
 
       if(sG > -1) {
 
-	 r = sqrt(r2[sG]);
-
-	 if(r >= h)
-	   fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], h, r, 1);
-	 else 
-	   fac = (*AccelSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
+	r = sqrt(r2[sG]);
 	 
 	 tabindex = (int) (asmthfac * r);
+	 
+	 // KC 11/2/15
+	 // DO you even lift bro?
+	 // Note we *may* be outside the cutoff radius...
+	 if(tabindex < NTAB) {
 
-	  if(tabindex < NTAB)
-	    {
-	      fac *= shortrange_table[tabindex];
-
-	      acc_x += dx[sG] * fac;
-	      acc_y += dy[sG] * fac;
-	      acc_z += dz[sG] * fac;
+	   if(r >= h) {
+	     // KC 10/23/15
+	     // Only play suppression games if we are outside the softening radius!
+	     fac = (*AccelFxns[pgravtype][sG])(pmass, mass[sG], r2[sG], r, 1);
+	     fac -= mass[sG] * utor2wpi * shortrange_fourier_force[pgravtype][sG][tabindex];
+	     fac /= r;
+	   }
+	   else 
+	     fac = (*AccelSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
+	 
+	   acc_x += dx[sG] * fac;
+	   acc_y += dy[sG] * fac;
+	   acc_z += dz[sG] * fac;
 	      
-	      // Flag to record interactions
-	      nintflag = 1;
-	    }
+	   // Flag to record interactions
+	   nintflag = 1;
+	 }
       }
       else {
 	
 	for(whichGrav = 0; whichGrav < N_GRAVS; ++whichGrav) {
 
+	  // KC 1/3/16
+	  // Skip if we were past the cutoff in this contribution....
 	  if(mass[whichGrav] == 0.0)
 	    continue;
 
 	  r = sqrt(r2[whichGrav]);
 
-	  if(r >= h) {
-#ifdef NGRAVS_ACCUMULATOR
-
-	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, Nparticles[whichGrav]);
-#else
-	    fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, 1);
-#endif
-	  }
-	  else {
-#ifdef NGRAVS_ACCUMULATOR
-	    fac = (*AccelSplines[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, Nparticles[whichGrav]);
-#else
-	    fac = (*AccelSplines[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, 1);
-#endif
-	  }
 	  tabindex = (int) (asmthfac * r);
+		    
+	  if(tabindex < NTAB) {
 
-	  if(tabindex < NTAB)
-	    {
-	      fac *= shortrange_table[tabindex];
-
-	      acc_x += dx[whichGrav] * fac;
-	      acc_y += dy[whichGrav] * fac;
-	      acc_z += dz[whichGrav] * fac;
-	      
-	      // Flag to record interactions
-	      nintflag = 1;
+	    if(r >= h) {
+#ifdef NGRAVS_ACCUMULATOR
+	      fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, Nparticles[whichGrav]);
+#else
+	      fac = (*AccelFxns[pgravtype][whichGrav])(pmass, mass[whichGrav], r2[whichGrav], r, 1);
+#endif
+	      fac -= mass[whichGrav] * utor2wpi * shortrange_fourier_force[pgravtype][whichGrav][tabindex];
+	      fac /= r;
 	    }
+	    else {
+#ifdef NGRAVS_ACCUMULATOR
+	      fac = (*AccelSplines[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, Nparticles[whichGrav]);
+#else
+	      fac = (*AccelSplines[pgravtype][whichGrav])(pmass, mass[whichGrav], h, r, 1);
+#endif
+	    }
+
+	    acc_x += dx[whichGrav] * fac;
+	    acc_y += dy[whichGrav] * fac;
+	    acc_z += dz[whichGrav] * fac;
+	  
+	    // Flag to record interactions
+	    nintflag = 1;
+	  }
 	}      
       }
 
@@ -2110,6 +2121,9 @@ int force_treeevaluate_lattice_correction(int target, int mode, double pos_x, do
 	  dz[sG] = NEAREST(P[no].Pos[2] - pos_z);
 	  
 	  r2[sG] = dx[sG] * dx[sG] + dy[sG] * dy[sG] + dz[sG] * dz[sG];
+
+	  // KC 1/5/16
+	  r2min = r2max = r2[sG];
 	}
       else
 	{
@@ -2284,18 +2298,18 @@ int force_treeevaluate_lattice_correction(int target, int mode, double pos_x, do
 
 	  u = dx[n] * fac_intp;
 	  i = (int) u;
-	  if(i >= EN)
-	    i = EN - 1;
+	  if(i >= NGRAVS_EN)
+	    i = NGRAVS_EN - 1;
 	  u -= i;
 	  v = dy[n] * fac_intp;
 	  j = (int) v;
-	  if(j >= EN)
-	    j = EN - 1;
+	  if(j >= NGRAVS_EN)
+	    j = NGRAVS_EN - 1;
 	  v -= j;
 	  w = dz[n] * fac_intp;
 	  k = (int) w;
-	  if(k >= EN)
-	    k = EN - 1;
+	  if(k >= NGRAVS_EN)
+	    k = NGRAVS_EN - 1;
 	  w -= k;
 
 	  /* compute factors for trilinear interpolation */
@@ -2368,18 +2382,18 @@ int force_treeevaluate_lattice_correction(int target, int mode, double pos_x, do
 
 	u = dx[sG] * fac_intp;
 	i = (int) u;
-	if(i >= EN)
-	  i = EN - 1;
+	if(i >= NGRAVS_EN)
+	  i = NGRAVS_EN - 1;
 	u -= i;
 	v = dy[sG] * fac_intp;
 	j = (int) v;
-	if(j >= EN)
-	  j = EN - 1;
+	if(j >= NGRAVS_EN)
+	  j = NGRAVS_EN - 1;
 	v -= j;
 	w = dz[sG] * fac_intp;
 	k = (int) w;
-	if(k >= EN)
-	  k = EN - 1;
+	if(k >= NGRAVS_EN)
+	  k = NGRAVS_EN - 1;
 	w -= k;
 
 	/* compute factors for trilinear interpolation */
@@ -2770,8 +2784,8 @@ void force_treeevaluate_potential(int target, int mode)
 
 #ifdef PMGRID
 /*! This function computes the short-range potential when the TreePM
- *  algorithm is used. This potential is the Newtonian potential, modified
- *  by a complementary error function.
+ *  algorithm is used. These are the IFT of the user-specified k-space potentials
+ *  multiplied by a gaussian cutoff.
  */
 void force_treeevaluate_potential_shortrange(int target, int mode)
 {
@@ -2780,7 +2794,7 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
   int no, ptype, tabindex;
   double r2[N_GRAVS], dx[N_GRAVS], dy[N_GRAVS], dz[N_GRAVS], mass[N_GRAVS], r, h;
   double pot, pos_x, pos_y, pos_z, aold;
-  double eff_dist, fac, rcut, asmth, asmthfac;
+  double eff_dist, rcut, asmth, asmthfac;
   double dxx, dyy, dzz;
 #if defined(UNEQUALSOFTENINGS) && !defined(ADAPTIVE_GRAVSOFT_FORGAS)
   int maxsofttype;
@@ -2796,6 +2810,7 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
 #ifdef NGRAVS_ACCUMULATOR
   long Nparticles[N_GRAVS];
 #endif
+  double utorwpi;
 
 #ifdef PERIODIC
   double boxsize, boxhalf;
@@ -2844,6 +2859,9 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
     }
 #endif
   asmthfac = 0.5 / asmth * (NTAB / 3.0);
+
+  // KC 11/3/15
+  utorwpi = 1.0/(2*M_PI*asmth);
 
 #ifndef UNEQUALSOFTENINGS
   h = All.ForceSoftening[ptype];
@@ -3094,12 +3112,11 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
 
 	if(tabindex < NTAB)
 	  {
-	    fac = shortrange_table_potential[tabindex];
-
 	    if(r >= h)
-	      pot -= fac * (*PotentialFxns[pgravtype][sG])(pmass, mass[sG], h, r, 1);
+	      pot -= (*PotentialFxns[pgravtype][sG])(pmass, mass[sG], h, r, 1) - 
+		utorwpi * shortrange_fourier_pot[pgravtype][sG][tabindex];
 	    else
-	      pot += fac * (*PotentialSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
+	      pot += (*PotentialSplines[pgravtype][sG])(pmass, mass[sG], h, r, 1);
 	  }
       }
       else {
@@ -3115,21 +3132,24 @@ void force_treeevaluate_potential_shortrange(int target, int mode)
 
 	  if(tabindex < NTAB)
 	    {
-	      fac = shortrange_table_potential[tabindex];
-
 	      if(r >= h) {
 #ifdef NGRAVS_ACCUMULATOR
-		pot -= fac * (*PotentialFxns[pgravtype][i])(pmass, mass[i], h, r, Nparticles[i]);
+		pot -= (*PotentialFxns[pgravtype][i])(pmass, mass[i], h, r, Nparticles[i]) -
+		  utorwpi * shortrange_fourier_pot[pgravtype][i][tabindex];
 #else
-		pot -= fac * (*PotentialFxns[pgravtype][i])(pmass, mass[i], h, r, 1);
+		pot -= (*PotentialFxns[pgravtype][i])(pmass, mass[i], h, r, 1);
 #endif
 	      }
 	      else
 		{
 #ifdef NGRAVS_ACCUMULATOR
-		  pot += fac * (*PotentialSplines[pgravtype][i])(pmass, mass[i], h, r, Nparticles[i]);
+		  // KC 11/3/15
+		  // Note that this code originally applied a softening to the splined potential, which is 
+		  // not correct because the Fourier contribution to the potential does not 
+		  // account for potential splining.  We have therefore removed this adjustment.
+		  pot += (*PotentialSplines[pgravtype][i])(pmass, mass[i], h, r, Nparticles[i]);
 #else
-		  pot += fac * (*PotentialSplines[pgravtype][i])(pmass, mass[i], h, r, 1);
+		  pot += (*PotentialSplines[pgravtype][i])(pmass, mass[i], h, r, 1);
 #endif
 		}
 	    }
@@ -3159,7 +3179,20 @@ void force_treeallocate(int maxnodes, int maxpart)
   int i;
   size_t bytes;
   double allbytes = 0;
-  double u;
+
+#ifdef PMGRID
+  // KC 27.9.15
+  FLOAT u;
+  int nA, nB;
+  double r;
+  FLOAT Z;
+  
+  char buf[512];
+  FILE *fhand = NULL;
+  int skipWrite = 0;
+
+  double utor2wpi, asmthfac;
+#endif
 
   MaxNodes = maxnodes;
 
@@ -3203,18 +3236,167 @@ void force_treeallocate(int maxnodes, int maxpart)
       if(ThisTask == 0)
 	printf("\nAllocated %g MByte for BH-tree. %ld\n\n", allbytes / (1024.0 * 1024.0),
 	       sizeof(struct NODE) + sizeof(struct extNODE));
+      
+      // KC 9/20/15
+      // We place this inside a def because the shortrange stuff is certainly not used unless we
+      // are doing PMGRID, and since we will need to be integrating things numerically for ngravs
+      // this may take a bit of time (though it only needs to be performed once)
+#ifdef PMGRID
 
-      tabfac = NTAB / 3.0;
+      // KC 11/17/15
+      // PPP
+      // This computation should really be distributed, and written out to a file just like the
+      // lattice computation...
+      //
+      // If the computation is working well, in general, then we can do this.  It will just mean distributing
+      // the Fourier transform.  
+      //
+      // Do not confuse magnitude with precision.
+      // single-precision: 2^{-126} before becoming zero.  The FourierIntegrand contans e^(-(k asmth/2)^2 ), so
+      //                   -126 ln 2 = -(k asmth/2)^2
+      //                   sqrt(126 ln 2) = k asmth / 2
+      //                   k = 2 sqrt (126 ln 2) / asmth
+      //
+      // But asmth = 2 \pi ASMTH (1.25) / PMGRID, so
+      //                   k < 2 sqrt (126 ln 2) * PMGRID / (2 \pi ASMTH)
+      //                     =~ 609.2 (PMGRID = 256)
+      // 
+      // But the proffered k \in [-PMGRID/2, PMGRID/2], so the computer can accurately and precisely track
+      // all possible values.  Interesting.
+      //
+      // double-precision: 126 -> 2xx 
+      //
+      // Anything above this is oversampling, because the integrand MUST be zero as far as the machine is concerned
+      // (because the normalized greens is bounded above by 1).
+      //
+      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 4, 12);
+      Z = 1.0/2.0; 
 
-      for(i = 0; i < NTAB; i++)
-	{
-	  u = 3.0 / NTAB * (i + 0.5);
-	  shortrange_table[i] = erfc(u) + 2.0 * u / sqrt(M_PI) * exp(-u * u);
-	  shortrange_table_potential[i] = erfc(u);
+      if(!ThisTask)
+	printf("ngravs: tabulating shortrange correction factors for dimensionless transition scale %f...\n", Z);
+
+      // Sources
+      for(nA = 0; nA < N_GRAVS; ++nA) {
+
+	// Receivers
+	for(nB = 0; nB < N_GRAVS; ++nB) {
+	  
+	  // KC 11/17/15
+	  // So horribly inefficient.  These should be pointers to the table to use
+	  i = performConvolution(ngravsPeriodicTable, 
+				 NormedGreensFxns[nB][nA], 
+				 Z,
+				 shortrange_fourier_pot[nB][nA], 
+				 shortrange_fourier_force[nB][nA]);
+	  if(i) {
+
+	    printf("ngravs: could not allocate memory for FFT on task %d.  Reduce OL and/or LEN and recompile.", ThisTask);
+	    endrun(1047);
+	  }
+
+#if defined NGRAVS_TREEPM_XITION_CHECK
+	  if(!ThisTask) {
+
+	    // Don't write out the same data twice
+	    // (but always write it out once per run)
+	    for(i = 0; i < nA * nB; ++i) {
+	      if(!strncmp(*(&NgravsNames[0][0] + i), NgravsNames[nB][nA], 100)) {
+		skipWrite = 1;
+		break;
+	      }
+	    }
+	    
+	    if(!skipWrite && !ThisTask) {
+	      printf("ngravs: %s\n", NgravsNames[nB][nA]);
+	      snprintf(buf, 512, "%s/ngravs_tpm_%s_l%d_ol%d.txt", 
+		       All.OutputDir, 
+		       NgravsNames[nB][nA], 
+		       ngravsPeriodicTable->len,
+		       ngravsPeriodicTable->ol);
+	      fhand = fopen(buf, "w+t");
+	      
+	      if(!fhand) {
+		printf("ngravs: could not open %s for writing!\n", buf);
+		endrun(1014);
+	      }
+	    }
+	  }
+#endif	  
+	  // pot and force arrays don't yet contain the appropriate correction factors.  
+	  // Here we make the adjustments
+	  for(i = 0; i < NTAB; ++i) {
+	    
+	    // Stock, forcetree.c:2679
+	    u = 3.0 / NTAB * (i + 0.5);
+	    
+#if defined NGRAVS_TREEPM_XITION_CHECK
+	    if(!ThisTask && !skipWrite)
+	      fprintf(fhand, "%.15e %.15e %.15e\n", 
+		      u,
+		      shortrange_fourier_pot[nB][nA][i],
+		      shortrange_fourier_force[nB][nA][i]);
+#endif
+	    // Divide by the appropriate values of u to save computation time in actual use
+	    shortrange_fourier_force[nB][nA][i] /= u*u;
+	    shortrange_fourier_pot[nB][nA][i] /= u;
+
+	    // Precompute buddy!
+	    shortrange_fourier_force[nB][nA][i] -= shortrange_fourier_pot[nB][nA][i];
+	  }
+	  
+#if defined NGRAVS_DEBUG_FORCETRACE && defined NGRAVS_TREEPM_XITION_CHECK	
+
+	  // Here we dump out the untruncated force and its truncated value
+	  if(!ThisTask && !skipWrite) {
+	    fprintf(fhand, "\n# Begin debug forcetrace output\n# All.Asmth[0]: %f\n", All.Asmth[0]);
+
+	    utor2wpi = 1.0/(M_PI*4*All.Asmth[0]*All.Asmth[0]);
+	    asmthfac = 0.5 / All.Asmth[0] * (NTAB / 3.0);
+
+	    for(i = 0; i < NTAB; ++i) {
+	      
+	      // Stock, forcetree.c:2679
+	      r = (double)i / asmthfac;  //u = 3.0 / NTAB * (i + 0.5);
+	    
+	      fprintf(fhand, "%.15e %.15e %.15e\n", 
+		      r,
+		      (*AccelFxns[nB][nA])(1.0, 1.0, r*r, r, 1),
+		      (*AccelFxns[nB][nA])(1.0, 1.0, r*r, r, 1) - utor2wpi * shortrange_fourier_force[nB][nA][i]);
+	    }
+
+	    // Now continue with just the force (with 100 more samples)
+	    for(; r < All.BoxSize*0.5; r += All.BoxSize*0.005)  
+	      fprintf(fhand, "%.15e %.15e %.15e\n", 
+		      r,
+		      (*AccelFxns[nB][nA])(1.0, 1.0, r*r, r, 1),
+		      0.0);
+	  }
+#endif
+
+#if defined NGRAVS_TREEPM_XITION_CHECK
+	  skipWrite = 0;
+	  if(fhand) {
+	    fclose(fhand);
+	    fhand = NULL;
+	  }
+#endif
 	}
+      }
+
+      //endrun(5678);
+
+      // Cleanup
+      ngravsConvolutionFree(ngravsPeriodicTable);
+
+      if(!ThisTask)
+	printf("ngravs: Finished short-range correction tabulation with FFT\n");
+      
+      // Wait for the other guys to catchup
+      MPI_Barrier(MPI_COMM_WORLD);
+#endif
     }
 }
-
+   
 
 /*! This function frees the memory allocated for the tree, i.e. it frees
  *  the space allocated by the function force_treeallocate().
@@ -3310,8 +3492,12 @@ int force_treeevaluate_direct(int target, int mode)
 
       u = r * h_inv;
 
+      // KC 10.25.15
+      // We divide by r here so that we don't need to do it 
+      // prematurely on the actual acceleration term elsewhere, since
+      // we now need to perform subtractions in the TreePM regime
       if(u >= 1)
-	fac = (*AccelFxns[pgravtype][TypeToGrav[P[i].Type]])(pmass, P[i].Mass, h, r, 1);
+	fac = (*AccelFxns[pgravtype][TypeToGrav[P[i].Type]])(pmass, P[i].Mass, r2, r, 1) / r;
       else
 	fac = (*AccelSplines[pgravtype][TypeToGrav[P[i].Type]])(pmass, P[i].Mass, h, r, 1);
 	
@@ -3320,8 +3506,13 @@ int force_treeevaluate_direct(int target, int mode)
       acc_z += dz * fac;
 
 #ifdef PERIODIC
+      // KC 11/21/15
+      // (Even if we are too close for accelfxns, the periodic images are not, so we need to correct
+      // for them, even though this correction is small)
       if(u > 1.0e-5)
 	{
+
+	  // Here lattice_corr is fed dimensionful displacements....
 	  lattice_corr(dx, dy, dz, pgravtype, TypeToGrav[P[i].Type], fcorr);
 
 	  acc_x += P[i].Mass * fcorr[0];
@@ -3396,7 +3587,9 @@ void dump_particles(void)
  *  Advances and Perspectives, 1980).  Care must be taken by the *user* to guarantee
  *  that the routines defined in LatticeForce[][] and LatticeSelf[][] 
  *  give good approximations to the lattice sum of whatever distribution is under
- *  study.  
+ *  study.  As an example, Yukawa has very poor convergence in k-space, which 
+ *  is the trick employed by the Ewald/Bertaut class of procedures to produce a rapidly
+ *  convergent sum in r-space.
  *  
  *  The correction fields
  *  are used to obtain the full periodic force if periodic boundaries
@@ -3412,10 +3605,11 @@ void lattice_init(void)
 {
   int i, j, k, beg, len, size, n, task, count;
   double x[3], force[3];
-  char buf[200];
+  char buf[512];
   FILE *fd;
   
   int l, m;
+  double r2;
 
   if(ThisTask == 0)
     {
@@ -3429,9 +3623,9 @@ void lattice_init(void)
       // KC 12/5/14
       // 
 #ifdef DOUBLEPRECISION
-      sprintf(buf, "lattice_spc_table_%d_dbl_%s.dat", EN, NgravsNames[l][m]);
+      sprintf(buf, "lattice_spc_table_%d_dbl_%s.dat", NGRAVS_EN, NgravsNames[l][m]);
 #else
-      sprintf(buf, "lattice_spc_table_%d_%s.dat", EN, NgravsNames[l][m]);
+      sprintf(buf, "lattice_spc_table_%d_%s.dat", NGRAVS_EN, NgravsNames[l][m]);
 #endif
 
       if((fd = fopen(buf, "r")))
@@ -3442,10 +3636,10 @@ void lattice_init(void)
 	      fflush(stdout);
 	    }
 
-	  my_fread(&fcorrx[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-	  my_fread(&fcorry[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-	  my_fread(&fcorrz[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-	  my_fread(&potcorr[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
+	  my_fread(&fcorrx[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+	  my_fread(&fcorry[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+	  my_fread(&fcorrz[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+	  my_fread(&potcorr[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
 	  fclose(fd);
 	}
       else
@@ -3458,19 +3652,19 @@ void lattice_init(void)
 
 	  /* ok, let's recompute things. Actually, we do that in parallel. */
 
-	  size = (EN + 1) * (EN + 1) * (EN + 1) / NTask;
+	  size = (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1) / NTask;
 
 
 	  beg = ThisTask * size;
 	  len = size;
 	  if(ThisTask == (NTask - 1))
-	    len = (EN + 1) * (EN + 1) * (EN + 1) - beg;
+	    len = (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1) - beg;
 
-	  for(i = 0, count = 0; i <= EN; i++)
-	    for(j = 0; j <= EN; j++)
-	      for(k = 0; k <= EN; k++)
+	  for(i = 0, count = 0; i <= NGRAVS_EN; i++)
+	    for(j = 0; j <= NGRAVS_EN; j++)
+	      for(k = 0; k <= NGRAVS_EN; k++)
 		{
-		  n = (i * (EN + 1) + j) * (EN + 1) + k;
+		  n = (i * (NGRAVS_EN + 1) + j) * (NGRAVS_EN + 1) + k;
 		  if(n >= beg && n < (beg + len))
 		    {
 		      if(ThisTask == 0)
@@ -3482,9 +3676,9 @@ void lattice_init(void)
 			    }
 			}
 
-		      x[0] = 0.5 * ((double) i) / EN;
-		      x[1] = 0.5 * ((double) j) / EN;
-		      x[2] = 0.5 * ((double) k) / EN;
+		      x[0] = 0.5 * ((double) i) / NGRAVS_EN;
+		      x[1] = 0.5 * ((double) j) / NGRAVS_EN;
+		      x[2] = 0.5 * ((double) k) / NGRAVS_EN;
 
 		      (*LatticeForce[l][m])(i, j, k, x, force);
 
@@ -3507,7 +3701,7 @@ void lattice_init(void)
 	      beg = task * size;
 	      len = size;
 	      if(task == (NTask - 1))
-		len = (EN + 1) * (EN + 1) * (EN + 1) - beg;
+		len = (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1) - beg;
 
 #ifdef DOUBLEPRECISION
 	      MPI_Bcast(&fcorrx[l][m][0][0][beg], len, MPI_DOUBLE, task, MPI_COMM_WORLD);
@@ -3529,10 +3723,10 @@ void lattice_init(void)
 
 	      if((fd = fopen(buf, "w")))
 		{
-		  my_fwrite(&fcorrx[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-		  my_fwrite(&fcorry[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-		  my_fwrite(&fcorrz[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
-		  my_fwrite(&potcorr[l][m][0][0][0], sizeof(FLOAT), (EN + 1) * (EN + 1) * (EN + 1), fd);
+		  my_fwrite(&fcorrx[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+		  my_fwrite(&fcorry[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+		  my_fwrite(&fcorrz[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
+		  my_fwrite(&potcorr[l][m][0][0][0], sizeof(FLOAT), (NGRAVS_EN + 1) * (NGRAVS_EN + 1) * (NGRAVS_EN + 1), fd);
 		  fclose(fd);
 		}
 	    }
@@ -3541,16 +3735,42 @@ void lattice_init(void)
 	  MPI_Barrier(MPI_COMM_WORLD);
 	}
 
-      fac_intp = 2 * EN / All.BoxSize;
+      // KC 11/16/15
+      // Interpolation factor. Ok.
+      //
+      fac_intp = 2 * NGRAVS_EN / All.BoxSize;
 
-      for(i = 0; i <= EN; i++)
-	for(j = 0; j <= EN; j++)
-	  for(k = 0; k <= EN; k++)
+      for(i = 0; i <= NGRAVS_EN; i++)
+	for(j = 0; j <= NGRAVS_EN; j++)
+	  for(k = 0; k <= NGRAVS_EN; k++)
 	    {
+	      // Here's the 1/L that shows up later
+	      
+	      // This is the overall factor of 1/L that can be seen in (3.1) of G. Salin
 	      potcorr[l][m][i][j][k] /= All.BoxSize;
+
+	      // The radial derivative then gives an overall factor of 1/L^2 by the chain rule
 	      fcorrx[l][m][i][j][k] /= All.BoxSize * All.BoxSize;
 	      fcorry[l][m][i][j][k] /= All.BoxSize * All.BoxSize;
 	      fcorrz[l][m][i][j][k] /= All.BoxSize * All.BoxSize;
+
+#ifdef NGRAVS_DEBUG_UNITS_CHECK
+	      // DEBUG
+	      // Note that fcorr[xyz] has the direction information on it: x[i]/r
+	      // AccelFxns does not.
+	      // Check for sanity in the force and lattice tables (only works if you disable the lattice correction part of 
+	      // the lattice computation).  The the tabulated value and the computed value should be the same, roughly.
+	      //
+	      if(!ThisTask) {
+		r2 = (i*i + j*j + k*k)/((double)fac_intp*fac_intp);	
+		if(r2 > 10) {
+		  fprintf(stderr, "%.7e %.7e %.7e\n", 
+			  sqrt(r2),
+			  (*AccelFxns[l][m])(1.0, 1.0, r2, sqrt(r2), 1),
+			  (fcorrx[l][m][i][j][k]*i + fcorry[l][m][i][j][k]*j + fcorrz[l][m][i][j][k]*k)/sqrt(i*i + j*j + k*k));
+		}
+	      }
+#endif
 	    }
 
         // Close NGRAVS loops
@@ -3602,20 +3822,23 @@ void lattice_corr(double dx, double dy, double dz, int target, int source, doubl
   else
     signz = -1;
 
+  // KC 11/19/15
+  // Here, the BoxLength values get de-dimensionalized into interpolation
+  // table values
   u = dx * fac_intp;
   i = (int) u;
-  if(i >= EN)
-    i = EN - 1;
+  if(i >= NGRAVS_EN)
+    i = NGRAVS_EN - 1;
   u -= i;
   v = dy * fac_intp;
   j = (int) v;
-  if(j >= EN)
-    j = EN - 1;
+  if(j >= NGRAVS_EN)
+    j = NGRAVS_EN - 1;
   v -= j;
   w = dz * fac_intp;
   k = (int) w;
-  if(k >= EN)
-    k = EN - 1;
+  if(k >= NGRAVS_EN)
+    k = NGRAVS_EN - 1;
   w -= k;
 
   f1 = (1 - u) * (1 - v) * (1 - w);
@@ -3677,18 +3900,18 @@ double lattice_pot_corr(double dx, double dy, double dz, int target, int source)
 
   u = dx * fac_intp;
   i = (int) u;
-  if(i >= EN)
-    i = EN - 1;
+  if(i >= NGRAVS_EN)
+    i = NGRAVS_EN - 1;
   u -= i;
   v = dy * fac_intp;
   j = (int) v;
-  if(j >= EN)
-    j = EN - 1;
+  if(j >= NGRAVS_EN)
+    j = NGRAVS_EN - 1;
   v -= j;
   w = dz * fac_intp;
   k = (int) w;
-  if(k >= EN)
-    k = EN - 1;
+  if(k >= NGRAVS_EN)
+    k = NGRAVS_EN - 1;
   w -= k;
 
   f1 = (1 - u) * (1 - v) * (1 - w);
@@ -3709,106 +3932,5 @@ double lattice_pot_corr(double dx, double dy, double dz, int target, int source)
 }
 
 
-
-/*! This function computes the potential correction term by means of Ewald
- *  summation.
- */
-double ewald_psi(double x[3])
-{
-  double alpha, psi;
-  double r, sum1, sum2, hdotx;
-  double dx[3];
-  int i, n[3], h[3], h2;
-
-  alpha = 2.0;
-
-  for(n[0] = -4, sum1 = 0; n[0] <= 4; n[0]++)
-    for(n[1] = -4; n[1] <= 4; n[1]++)
-      for(n[2] = -4; n[2] <= 4; n[2]++)
-	{
-	  for(i = 0; i < 3; i++)
-	    dx[i] = x[i] - n[i];
-
-	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
-	  sum1 += erfc(alpha * r) / r;
-	}
-
-  for(h[0] = -4, sum2 = 0; h[0] <= 4; h[0]++)
-    for(h[1] = -4; h[1] <= 4; h[1]++)
-      for(h[2] = -4; h[2] <= 4; h[2]++)
-	{
-	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
-	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
-	  if(h2 > 0)
-	    sum2 += 1 / (M_PI * h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * cos(2 * M_PI * hdotx);
-	}
-
-  r = sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
-
-  psi = M_PI / (alpha * alpha) - sum1 - sum2 + 1 / r;
-
-  return psi;
-}
-
-
-/*! This function computes the force correction term (difference between full
- *  force of infinite lattice and nearest image) by Ewald summation.
- */
-void ewald_force(int iii, int jjj, int kkk, double x[3], double force[3])
-{
-  double alpha, r2;
-  double r, val, hdotx, dx[3];
-  int i, h[3], n[3], h2;
-
-  alpha = 2.0;
-
-  for(i = 0; i < 3; i++)
-    force[i] = 0;
-
-  if(iii == 0 && jjj == 0 && kkk == 0)
-    return;
-
-  r2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
-
-  for(i = 0; i < 3; i++)
-    force[i] += x[i] / (r2 * sqrt(r2));
-
-  // KC 12/4/14
-  // Looks like this takes the first four images out in position space in each direction (so 
-  // bracketing by 8 overall)
-  for(n[0] = -4; n[0] <= 4; n[0]++)
-    for(n[1] = -4; n[1] <= 4; n[1]++)
-      for(n[2] = -4; n[2] <= 4; n[2]++)
-	{
-	  for(i = 0; i < 3; i++)
-	    dx[i] = x[i] - n[i];
-
-	  r = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
-
-	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
-
-	  for(i = 0; i < 3; i++)
-	    force[i] -= dx[i] / (r * r * r) * val;
-	}
-
-  // KC 12/4/14
-  // Looks like this takes the first four images in momentum space in each diretion (again
-  // bracketing by 8 overall)
-  for(h[0] = -4; h[0] <= 4; h[0]++)
-    for(h[1] = -4; h[1] <= 4; h[1]++)
-      for(h[2] = -4; h[2] <= 4; h[2]++)
-	{
-	  hdotx = x[0] * h[0] + x[1] * h[1] + x[2] * h[2];
-	  h2 = h[0] * h[0] + h[1] * h[1] + h[2] * h[2];
-
-	  if(h2 > 0)
-	    {
-	      val = 2.0 / ((double) h2) * exp(-M_PI * M_PI * h2 / (alpha * alpha)) * sin(2 * M_PI * hdotx);
-
-	      for(i = 0; i < 3; i++)
-		force[i] -= h[i] * val;
-	    }
-	}
-}
 
 #endif

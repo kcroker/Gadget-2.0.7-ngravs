@@ -9,7 +9,7 @@
 
 #include "allvars.h"
 #include "proto.h"
-
+#include "ngravs.h"
 
 /*! \file begrun.c
  *  \brief initial set-up of a simulation run
@@ -42,6 +42,7 @@ void begrun(void)
   set_units();
 
   init_grav_maps();  /* KC 8/9/14 Establish the mappings */ 
+
   
 #if defined(PERIODIC) && (!defined(PMGRID) || defined(FORCETEST))
   lattice_init();

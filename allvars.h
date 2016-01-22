@@ -133,6 +133,9 @@ typedef  long long  peanokey;    /*!< defines the variable type used for Peano-H
 
 
 //////////// BEGIN ngravs Extension ////////////////
+/*  #ifdef PMGRID */
+/* extern double shortrange_fourier_pot[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_force[N_GRAVS][N_GRAVS][NTAB]; */
+/* #endif */
 
 extern char *NgravsNames[N_GRAVS][N_GRAVS];
 extern int TypeToGrav[6];
@@ -145,13 +148,14 @@ typedef void (*latforce)(int, int, int, double *, double *);
 typedef double (*latpot)(double *);
 extern latforce LatticeForce[N_GRAVS][N_GRAVS];
 extern latpot LatticePotential[N_GRAVS][N_GRAVS];
-extern float LatticeZero[N_GRAVS][N_GRAVS];
+extern FLOAT LatticeZero[N_GRAVS][N_GRAVS];
 
 #if defined OUTPUTPOTENTIAL || defined PMGRID
 extern gravity GreensFxns[N_GRAVS][N_GRAVS];
+extern gravity NormedGreensFxns[N_GRAVS][N_GRAVS];
 extern gravity PotentialSplines[N_GRAVS][N_GRAVS];
 extern gravity PotentialFxns[N_GRAVS][N_GRAVS];
-extern float PotentialZero[N_GRAVS][N_GRAVS];
+extern FLOAT PotentialZero[N_GRAVS][N_GRAVS];
 #endif
 
 ////////////// END ngravs Extension ///////////////
