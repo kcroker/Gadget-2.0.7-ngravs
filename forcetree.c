@@ -1826,8 +1826,7 @@ int force_treeevaluate_shortrange(int target, int mode)
 	
 	  sG = -1;
 	  
-	  // XXX!
-	  if(0) //r2min > rcut2)
+	  if(r2min > rcut2)
 	    {
 	      /* check whether we can stop walking along this branch */
 	      eff_dist = rcut + 0.5 * nop->len;
@@ -2124,9 +2123,6 @@ int force_treeevaluate_lattice_correction(int target, int mode, double pos_x, do
 	  r2[sG] = dx[sG] * dx[sG] + dy[sG] * dy[sG] + dz[sG] * dz[sG];
 
 	  // KC 1/5/16
-	  // XXX
-	  // WHOA BUDDY
-	  // r2min, r2max are not set if we only have an actual particle!
 	  r2min = r2max = r2[sG];
 	}
       else
@@ -3273,7 +3269,7 @@ void force_treeallocate(int maxnodes, int maxpart)
       // Anything above this is oversampling, because the integrand MUST be zero as far as the machine is concerned
       // (because the normalized greens is bounded above by 1).
       //
-      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 3, 8);
+      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 4, 12);
       Z = 1.0/2.0; 
 
       if(!ThisTask)

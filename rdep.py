@@ -46,11 +46,29 @@ random.seed()
 # cen = np.array([4967.0, 4967.0, 4967.0])
 cen = np.array([random.random()*L for x in range(3)])
 
-# These separations probe the default TPM transition scale
-seps_pmxition = [10 + n*(400 - 10)/(N/2) for n in range(N/2)]
-seps_longrange = [400 + n*(L - 400)/(N/2) for n in range(N/2)]
+seps_pmxition = []
+seps_longrange = []
+rutile = raw_input("Enter custom range (min,max) [Enter] for default: ")
+bounds = [float(x) for x in rutile.split(',')]
 
-#seps = [L/s for s in range(1,N+1)]
+if len(bounds) > 1:
+
+    # Reorder if necessary
+    if bounds[0] > bounds[1]:
+        tmp = bounds[0]
+        bounds[0] = bounds[1]
+        bounds[1] = tmp
+        
+    # Assign the partitioning
+    seps_pmxition = []
+    seps_longrange = [bounds[0] + n*(bounds[1] - bounds[0])/N for n in range(N)]
+else:
+    print "Using default ranges over entire length"
+
+    # These separations probe the default TPM transition scale
+    seps_pmxition = [10 + n*(400 - 10)/(N/2) for n in range(N/2)]
+    seps_longrange = [400 + n*(L - 400)/(N/2) for n in range(N/2)]
+
 seps = [x for x in seps_pmxition + seps_longrange]
 print seps
 
@@ -60,7 +78,7 @@ if len(sys.argv) > 4:
     if not os.path.exists("./%s/%s" % (proggyName, label)):
         os.mkdir("./%s/%s" % (proggyName, label))
     else:
-        print "%s run already exists.  Refusing to overwrite."
+        print "%s run already exists.  Refusing to overwrite." % label
         sys.exit()
 
     for i,d in enumerate(seps):

@@ -138,7 +138,6 @@ void pm_init_periodic_allocate(int dimprod)
   int dimprodmax;
   double bytes_tot = 0;
   size_t bytes;
-  int n, m;
 
   MPI_Allreduce(&dimprod, &dimprodmax, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
 
@@ -184,7 +183,6 @@ void pm_init_periodic_allocate(int dimprod)
  */
 void pm_init_periodic_free(void)
 {
-  int n,m;
   /* allocate the memory to hold the FFT fields */
   free(workspace);
   free(forcegrid);
@@ -488,14 +486,13 @@ void pmforce_periodic(void)
 		//
 		// We also apply the short range truncation, here in k-space
 		//
-		//
 		// This is the only place asmth has entered anywhere!
 		smth = (*GreensFxns[nA][nB])(All.MassTable[nA], All.MassTable[nB], k2, sqrt(k2), 1);
-		smth *= -exp(-k2 * asmth2) * ff * ff * ff * ff;
+		smth *= -exp(-k2*asmth2) * ff * ff * ff * ff;
 
 		// NOTE: Transposed order of indicies due to FFTW in k-space
 		ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-
+		
 		// KC 27.9.15
 		// 
 		// CONSTRAINT: 
@@ -1061,11 +1058,11 @@ void pmpotential_periodic(void)
 	    }
 
       // 12/31/15
-      // XXX!  Need to be adjusted to check for nan.  If so, then do this.  Otherwise, 
-      // we need the DC power.
-      // This looks like a check to set the DC power to zero....
-      /* if(slabstart_y == 0) */
-      /* 	fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0; */
+      // Check for nan.  If so, set DC power to zero (this was what was done previously)
+      if(slabstart_y == 0) {
+	if(fft_of_rhogrid[0].re != fft_of_rhogrid[0].re) // IEEE spec!
+	  fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
+      }
 
       /* Do the FFT to get the potential */
 

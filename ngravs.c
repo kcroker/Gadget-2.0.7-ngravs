@@ -824,19 +824,8 @@ double ewald_psi(double x[3])
  *
  */
 
-// KC 1/10/16
-// XXX
-// ym/2 should be on all Yukawa quantities so that a Gauss computation 
-// gives a unit enclosed charge!!
-//
-// For some reason though, puting this in really fucks everything up
-//
-
 /*! A pure Yukawa force
  *
- * Radii take values in [0, BoxLength] for periodic, unconstrained otherwise.
- * If we are in PERIODIC mode, so that the tables do not become sensitive to
- * the BoxLength as given in the configuration files, YUKAWA_IMASS is in units of EN.
  */
 double yukawa(double target, double source, double h, double r, long N) {
   
@@ -850,16 +839,20 @@ double yukawa(double target, double source, double h, double r, long N) {
  */
 double pgyukawa(double target, double source, double k2, double k, long N) {
   
-  //double ym = YUKAWA_IMASS/(2*M_PI);
   double ym = YUKAWA_IMASS/(2*M_PI);
-  return 1.0 / (k2 + ym*ym);
+  double asmth2;
+
+  asmth2 = (2 * M_PI) * All.Asmth[0] / All.BoxSize;
+  asmth2 *= asmth2;
+
+  return 1.0 / (k2 + ym*ym) * exp(-ym*ym*asmth2);
 }
 
 double normed_pgyukawa(double target, double source, double k2, double k, long N) {
 
   // This converts from PMGRID units into shortrange interpolation table units
   double ym = gridKtoNormK(YUKAWA_IMASS/(2*M_PI));
-  return k2 / (k2 + ym*ym);
+  return k2 / (k2 + ym*ym) * exp(-ym*ym*0.25);
 }
 
 /*! This function computes the Madelung constant for the yukawa potential
@@ -1003,10 +996,11 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   int i, h[3], n[3], h2;
   double ym;
   double fac;
-
+  
   // KC 11/16/15
   // Note our use of Salin's optimal 'alpha', and our excessive momentum-space
   alpha = 5.64;
+  //alpha = 1.0;
 
   if(iii == 0 && jjj == 0 && kkk == 0)
     return;
@@ -1039,6 +1033,12 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   // Looks like this takes the first four images out in position space in each direction (so
   // bracketing by 8 overall)
   
+  // KC 1/19/16
+  // This does not group expressions with the same order of n together in additions.
+  // Change so that we do.
+  //
+  // Note that erfc(x > 27) = 0 in double precision
+  //
   for(n[0] = -5; n[0] <= 5; n[0]++)
     for(n[1] = -5; n[1] <= 5; n[1]++)
       for(n[2] = -5; n[2] <= 5; n[2]++)
@@ -1051,29 +1051,37 @@ void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3
   	  // Note, as YUKAWA_IMASS \to zero, we regenerate the Ewald for Coloumb
   	  //	  val = erfc(alpha * r) + 2 * alpha * r / sqrt(M_PI) * exp(-alpha * alpha * r * r);
   	  
+	  // TYPE I
 	  // 0.5*(A + B) eventually /r^3
-	  val = 0.5000000000000*( exp(ym*r)*gsl_sf_erfc(alpha*r + ym/(2*alpha)) +
-				  exp(-ym*r)*gsl_sf_erfc(alpha*r - ym/(2*alpha)));
+	  val = 0.5*( exp(ym*r)*gsl_sf_erfc(alpha*r + ym/(2*alpha)) +
+		      exp(-ym*r)*gsl_sf_erfc(alpha*r - ym/(2*alpha)));
 
 	  // KC 1/7/16
 	  // For r > rcut, approx = 0.5*exp(ym*r)*erfc(alpha*r + ym/(2*alpha))
 	  // Overall, it will carry a factor of 1/r^2.
 
 	  // 0.5*(A + C*r) eventually /r^3
-	  /* val = 0.5*gsl_sf_erfc(alpha*r - ym/(2*alpha))*exp(-ym*r)*(1 + ym*r); */
-	  /* val += 0.5*gsl_sf_erfc(alpha*r + ym/(2*alpha))*exp(ym*r)*(1 - ym*r); */
+	  /* val = 0.5*gsl_sf_erfc(alpha*r - ym/(2*alpha))*exp(-ym*r)*(1.0/r + ym);  */
+	  /* val += 0.5*gsl_sf_erfc(alpha*r + ym/(2*alpha))*exp(ym*r)*(1.0/r - ym); */
 	  
 	  // 0.5*(B + D*r) eventually /r^3
 	  
+	  // TYPE I
   	  for(i = 0; i < 3; i++)
   	    force[i] -= dx[i] / (r * r * r) * val;
 
+	  /* for(i = 0; i < 3; i++) */
+  	  /*   force[i] -= dx[i] / (r * r) * val; */
+
+	  // TYPE II
 	  // Now E
-	  /* val = 2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI); */
+	  /* val += 2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI); */
 
 	  // 0.5*ym*(C +1 D) + E eventually /r^2
-  	  val = 0.5000000000000*ym*(-exp(ym*r)*gsl_sf_erfc(alpha*r + ym/(2*alpha)) +
-				    exp(-ym*r)*gsl_sf_erfc(alpha*r - ym/(2*alpha))) +
+	  // 
+	  // The subtraction here could destroy accuracy?
+  	  val = 0.5*ym*(-exp(ym*r)*gsl_sf_erfc(alpha*r + ym/(2*alpha)) +
+			exp(-ym*r)*gsl_sf_erfc(alpha*r - ym/(2*alpha))) +
   	    2*alpha*exp(-alpha*alpha*r*r-ym*ym/(4*alpha*alpha))/sqrt(M_PI);
 
 	  // KC 1/7/16
@@ -1320,11 +1328,6 @@ FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z) {
   
   FLOAT k2 = k*k;
   
-  // XXX?
-  // But if we fuck with this, we'll break newton.  The exponential factor
-  // seems to be correct because it works with newton, where the normgreens = 1.0
-  //
-  // But if this were the problem, it would only be on the lowend of the force...
   return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
 }
 
@@ -1369,9 +1372,8 @@ int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z,
   }
 
   // 1) FFTW needs this loaded in wonk order
-  // XXX? Should this be explicitly zero'd to avoid a constant force contribution
-  // to the corretion tabulations?  Apparently not, because the k = 0 for
-  // normed newton is 1 and that works...
+  // Note we need zero power in order to compute the 
+  // potential term correctly.
   in[0].re = fourierIntegrand(jTok(0, Z, s), normKGreen, Z);
 
   for(j = 1; j < s->ngravs_tpm_n/2; ++j) {
@@ -1390,23 +1392,18 @@ int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z,
   /*   printf("%.15f %.15f\n", mTox(m, s), out[m].re*norm); */
   /* exit(0); */
 
+  // ???
   sum = s->ngravs_tpm_n;
 
   for(m = 0; m < s->ntab; ++m)
     oRes[m] = out[gadgetToFourier(m, s)].re * norm;
- 
+
   // 3) Integrate so as to constrain the error correctly:
   // Newton-Cotes 4-point rule
   // Run the sum at double precision, though we may assign to lower precision
-  //
-  // KC 1/5/16
-  // XXX?
-  // The first term of the integrated quantity should be zero, as it corresponds to r=0?
-  //
-  // Is there an off by one error here?
-  //sum = 0.0;
-  // Remove the lowest 
+  // First term of in[] should be zero.
   in[0].re = 0.0;
+  sum = 0.0;
   for(m = 0; m < s->ngravs_tpm_n-3; m += 3) {
     sum += (mTox(m+3, s) - mTox(m, s)) * 0.125 * norm * (out[m].re + 3.0*out[m+1].re + 3.0*out[m+2].re + out[m+3].re);
     
