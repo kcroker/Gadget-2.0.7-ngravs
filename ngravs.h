@@ -29,16 +29,19 @@ double sourcebaryonbam(double target, double source, double h, double r, long N)
 double sourcebambaryon(double target, double source, double h, double r, long N);
 double newyukawa(double target, double source, double h, double r, long N);
 double yukawa(double target, double source, double h, double r, long N);
+double coloyuk(double target, double source, double h, double r, long N);
 
 // (Periodic) Greens functions
 double newtonKGreen(double target, double source, double k2, double k, long N);
 double pgdelta(double target, double source, double k2, double k, long N);
 double neg_pgdelta(double target, double source, double k2, double k, long N); 
-double normed_pgdelta(double target, double source, double k2, double k, long N);
 double pgyukawa(double target, double source, double k2, double k, long N); 
+double pgcoloyuk(double target, double source, double k2, double k, long N);
 
 // (Periodic) Normed Greens functions
+double normed_pgdelta(double target, double source, double k2, double k, long N);
 double normed_pgyukawa(double target, double source, double k2, double k, long N); 
+double normed_pgcoloyuk(double target, double source, double k2, double k, long N);
 
 // Potential functions
 double newtonian_pot(double target, double source, double h, double r, long N);
@@ -57,6 +60,7 @@ double plummer_pot(double target, double source, double h, double r, long N);
 double neg_plummer_pot(double target, double source, double h, double r, long N);
 
 // Lattice functions
+void coloyuk_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3]);
 void lattice_force_none(int iii, int jjj, int kkk, double x[3], double force[3]);
 double lattice_pot_none(double x[3]);
 void yukawa_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3]);

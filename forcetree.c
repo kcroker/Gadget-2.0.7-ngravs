@@ -3269,8 +3269,8 @@ void force_treeallocate(int maxnodes, int maxpart)
       // Anything above this is oversampling, because the integrand MUST be zero as far as the machine is concerned
       // (because the normalized greens is bounded above by 1).
       //
-      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 4, 12);
-      Z = 1.0/2.0; 
+      ngravsPeriodicTable = ngravsConvolutionInit(NTAB, 3, 8);
+      Z = 0.5; 
 
       if(!ThisTask)
 	printf("ngravs: tabulating shortrange correction factors for dimensionless transition scale %f...\n", Z);

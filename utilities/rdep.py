@@ -14,8 +14,9 @@ proggyName = "rdep"
 # Make datum more useful for parsing forcetest
 class Datum:
     # and a constructor to take the straight data without having to do anything
-    def __init__(self, ptype, crap2, crap3, x, y, z, fx, fy, fz, jx, jy, jz, cfx, cfy, cfz, crap4):
+    def __init__(self, ptype, ts, crap3, x, y, z, fx, fy, fz, jx, jy, jz, cfx, cfy, cfz, crap4):
         self.ptype = int(ptype)
+        self.ts = ts
         self.pos = np.array([float(u) for u in [x, y, z]])
         self.daccel = np.array([float(u) for u in [fx, fy, fz]])
         self.tpm_accel = np.array([float(u) for u in [cfx, cfy, cfz]])

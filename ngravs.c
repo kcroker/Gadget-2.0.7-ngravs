@@ -77,7 +77,7 @@ void wire_grav_maps(void) {
   // computing redundant tables.)
   //
 
-#if !defined NGRAVS_STOCK_TESTING && !defined NGRAVS_ACCUMULATOR_TESTING && !defined NGRAVS_GEN_TESTING_UNIFORM
+#if !defined NGRAVS_STOCK_TESTING && !defined NGRAVS_ACCUMULATOR_TESTING && !defined NGRAVS_YUKAWA_FORCETEST && !defined NGRAVS_COMBINED_TESTING_UNIFORM
   /////////////////////// WIRING FOR RESEARCH RUNS ///////////////////
   //
   // Here is where you wire for your research runs.  If you wish to verify force accuracy,
@@ -206,7 +206,7 @@ void wire_grav_maps(void) {
 
   //////////////// END ACCUMULATOR TESTING WIRING ///////////////////////////
 
-#elif defined NGRAVS_GEN_TESTING_UNIFORM
+#elif defined NGRAVS_YUKAWA_FORCETEST
   printf("ngravs: wired in uniform generalized force test mode\n");
   //////////////// BEGIN GENERALIZE FORCE TESTING WIRING ///////////////////////////
   //
@@ -224,10 +224,82 @@ void wire_grav_maps(void) {
       // This is not a leak because we need these handles throughout the
       // entire program run.
       fname = (char *)malloc(128);
-      snprintf(fname, 128, "Yukawa_%e", YUKAWA_IMASS);
+ 
+      if(i == j) {
+	snprintf(fname, 128, "None");
+	AccelFxns[i][j] = none;
+	AccelSplines[i][j] = none;
+      }
+      else {
+	snprintf(fname, 128, "Yukawa_%e", YUKAWA_IMASS);
+      	AccelSplines[i][j] = plummer;
+	AccelFxns[i][j] = yukawa;
+      }
+      
+      NgravsNames[i][j] = fname;
+
+      // We set the Yukawa spline to plummer since
+      // the force is Newtonian at small r
+      // This being incorrect won't matter for force checking the TreePM 
+      // stuff, because the force correction uses the spline too.
+
+#if defined PERIODIC
+      // Computed from G. Salin and J.M. Caillol
+      // J. Chem. Phys., Vol 113, No. 23, 2000
+      if(i != j)
+	LatticeForce[i][j] = yukawa_lattice_force;
+      else
+	LatticeForce[i][j] = lattice_force_none;
+
+      LatticePotential[i][j] = yukawa_lattice_psi;
+      LatticeZero[i][j] = yukawa_madelung(YUKAWA_IMASS);
+      if(!ThisTask)
+	printf("ngravs: Yukawa force Madelung constant for [%d][%d] = %f\n", i, j, LatticeZero[i][j]);
+#endif
+
+#if defined OUTPUTPOTENTIAL || defined PMGRID
+      
+      if(i != j) {
+	GreensFxns[i][j] = pgyukawa;
+	NormedGreensFxns[i][j] = normed_pgyukawa;
+      }
+      else {
+	GreensFxns[i][j] = none;
+	NormedGreensFxns[i][j] = none;
+      }
+      // We don't care about the potentials because we're
+      // not doing non-periodic or gastrophysics
+      PotentialFxns[i][j] = none;
+      PotentialSplines[i][j] = none;
+      PotentialFxns[i][j] = none;
+#endif
+    }
+  }
+  //////////////////////// END GENERALIZED FORCE TEST WIRING //////////////////
+
+#elif defined NGRAVS_COMBINED_TESTING_UNIFORM
+  printf("ngravs: wired in uniform generalized force test mode\n");
+  //////////////// BEGIN COMBINED FORCE TESTING WIRING ///////////////////////////
+  //
+  // This code is used to examine the force accuracy during the TreePM transition
+  // for a sum of forces.  This seemed prudent because of the Yukawa hack 
+  // required to get correct behaviour.  If it only works when Yukawa is run in isolation
+  // then I have failed....
+  // 
+  ///////////////////////////////////////////////////////////////////////
+
+  for(i = 0; i < N_GRAVS; ++i) {
+    for(j = 0; j < N_GRAVS; ++j) {
+      
+      // Allocate a new one each time, 
+      // because that's what we'd have to be doing anyway.
+      // This is not a leak because we need these handles throughout the
+      // entire program run.
+      fname = (char *)malloc(128);
+      snprintf(fname, 128, "ColoYuk_%e", YUKAWA_IMASS);
  
       NgravsNames[i][j] = fname;
-      AccelFxns[i][j] = yukawa;
+      AccelFxns[i][j] = coloyuk;
 
       // We set the Yukawa spline to plummer since
       // the force is Newtonian at small r
@@ -236,18 +308,16 @@ void wire_grav_maps(void) {
       AccelSplines[i][j] = plummer;
 
 #if defined PERIODIC
-      // Computed from G. Salin and J.M. Caillol
-      // J. Chem. Phys., Vol 113, No. 23, 2000
-      LatticeForce[i][j] = yukawa_lattice_force;
-      LatticePotential[i][j] = yukawa_lattice_psi;
-      LatticeZero[i][j] = yukawa_madelung(YUKAWA_IMASS*2*NGRAVS_EN);
+      LatticeForce[i][j] = coloyuk_lattice_force;
+      LatticePotential[i][j] = ewald_psi; // It doesn't matter, not being used in the tests
+      LatticeZero[i][j] = yukawa_madelung(YUKAWA_IMASS) + 2.8372975;
       if(!ThisTask)
 	printf("ngravs: Yukawa force Madelung constant for [%d][%d] = %f\n", i, j, LatticeZero[i][j]);
 #endif
 
 #if defined OUTPUTPOTENTIAL || defined PMGRID
-      GreensFxns[i][j] = pgyukawa;
-      NormedGreensFxns[i][j] = normed_pgyukawa;
+      GreensFxns[i][j] = pgcoloyuk;
+      NormedGreensFxns[i][j] = normed_pgcoloyuk;
 
       // We don't care about the potentials because we're
       // not doing non-periodic or gastrophysics
@@ -255,6 +325,7 @@ void wire_grav_maps(void) {
       PotentialSplines[i][j] = none;
       PotentialFxns[i][j] = none;
 #endif
+
     }
   }
 
@@ -266,7 +337,7 @@ void wire_grav_maps(void) {
 /*   AccelFxns[0][0] = newtonian; */
 /*   AccelFxns[0][1] = newtonian; */
 /*   AccelFxns[1][0] = newtonian; */
-/*   AccelFxns[1][1] = yukawa; */
+/*   AccelFxns[1][1] = coloyuk; */
 
 /*   // We set the Yukawa spline to plummer since */
 /*   // the force is Newtonian at small r */
@@ -317,8 +388,6 @@ void wire_grav_maps(void) {
 /*   PotentialZero[1][0] = 0.0; */
 /*   PotentialZero[1][1] = 0.0; */
 /* #endif */
-
-  //////////////// END GENERALIZE FORCE TESTING WIRING ///////////////////////////
 
 #else
   printf("ngravs: unsupported testing options defined in the Makefile.  Cannot do (explicit) accumulator tests and Newtonian comparions at the same time");
@@ -389,10 +458,8 @@ double neg_newtonian_pot(double target, double source, double h, double r, long 
  */
 double pgdelta(double target, double source, double k2, double k, long N) {
 
-  if(k2 > 0)
-     return 1.0/k2;
-  else
-    return 1.0;
+  // Return the NAN, since we either never compute it, or we catch it
+  return 1.0/k2;
 }
 
 double normed_pgdelta(double target, double source, double k2, double k, long N) {
@@ -405,10 +472,7 @@ double normed_pgdelta(double target, double source, double k2, double k, long N)
  */
 double neg_pgdelta(double target, double source, double k2, double k, long N) {
 
-  if(k2 > 0)
-     return -1.0/k2;
-  else
-    return -1.0;
+  return -1.0/k2;
 }
 
 /*! This is the Plummer spline used by GADGET-2
@@ -824,10 +888,44 @@ double ewald_psi(double x[3])
  *
  */
 
-/*! A pure Yukawa force
+/******
  *
- */
-double yukawa(double target, double source, double h, double r, long N) {
+ * These joint Coloumb + Yukawa interaction functions test whether the Yukawa hack
+ * is ONLY for the Yukawa potential in isolation, or whether its compatible with 
+ * summation with another force
+ *
+ ******/
+ double coloyuk(double target, double source, double h, double r, long N) {
+   return yukawa(target, source, h, r, N) + newtonian(target, source, h, r, N);
+ }
+ 
+ double pgcoloyuk(double target, double source, double k2, double k, long N) {
+   return pgyukawa(target, source, k2, k, N) + pgdelta(target, source, k2, k, N);
+ }
+
+ double normed_pgcoloyuk(double target, double source, double k2, double k, long N) {
+
+   return normed_pgyukawa(target, source, k2, k, N) + normed_pgdelta(target, source, k2, k, N);
+ }
+
+ void coloyuk_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3]) {
+   
+   double tmp[3];
+
+   yukawa_lattice_force(iii, jjj, kkk, x, tmp);
+   ewald_force(iii, jjj, kkk, x, force);
+
+   for(iii = 0; iii < 3; ++iii)
+     force[iii] += tmp[iii];
+
+   // Remember, you will need to add the adjustable parameter to the 
+   // timestep computation before resubmission!
+ }
+ 
+ /*! A pure Yukawa force
+  *
+  */
+ double yukawa(double target, double source, double h, double r, long N) {
   
   double ym;
   ym = YUKAWA_IMASS/All.BoxSize;  
