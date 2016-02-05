@@ -15,6 +15,20 @@
 #     Set this to the number of distinct gravitational types you wish to consider.
 #     Influences runtimes and memory consumption, so choose the minimum that you need.
 #
+# - NTAB:
+#     The resolution of the short-range tabulation used in the TreePM transition
+#     computation
+#
+# - NGRAVS_EN:
+#     The resolution of the lattice tables.  For ngravs, the memory requirement will
+#     go as N_NGRAVS^2 (!!)
+#
+# - NGRAVS_TIMESTEP_SCALE
+#     The square root of this will be used to decrease the timestep. E.g: If you have a summed force
+#     law (like Yukawa + Coloumb with equal weight), where the full effect of Yukawa can be felt outside of the 
+#     softening radius, then this should be set to 2. (because the force experienced could be twice
+#     as large as the Newtonian force)
+#
 # - NGRAVS_ACCUMULATOR:
 #     Enable to track the number of particles contained within tree nodes.  This information
 #     is then accurately provided to AccelFxns and SplineFxns for making an accurate monopole 
@@ -23,30 +37,42 @@
 # - NGRAVS_L3VIOLATION:
 #     Disables the symmetry check between Fxns[i][j] and Fxns[j][i]
 #
-# Note that, for simplicity, non-periodic boundary conditions will always use the 
-# real-space potential function as this was the existing behaviour.  
+# - NGRAVS_TREEPM_XITION_CHECK:
+#     This will generate plots of the truncated r-space force in periodic boundaries.
+#     Is useful as a qualitative check that the Fourier transform has been carried out
+#     to sufficient precision.
+#
+#  The remaining options perform various debugging behaviours, which can be examined
+#  with a code grep.  They should not be useful for regular operation of the code
 #
 #----------------------------------------------------------------------------- 
-OPT  +=   -DN_GRAVS=1
-OPT  +=   -DNGRAVS_EN=64
+OPT  += $(USER_DEFINES)
 
-#OPT  += -DNGRAVS_STOCK_TESTING
-OPT  += -DNGRAVS_GEN_TESTING_UNIFORM
+OPT  += -DN_GRAVS=2
+OPT  += -DNTAB=2048
+OPT  += -DNGRAVS_EN=64
+OPT  += -DNGRAVS_TIMESTEP_SCALE=1.0
+#OPT  += -DNGRAVS_ACCUMULATOR
+#OPT  += -DNGRAVS_L3VIOLATION
+#OPT  += -DNGRAVS_TREEPM_XITION_CHECK
 
-OPT  += -DNGRAVS_TREEPM_XITION_CHECK
+#---- ngravs debug options (not of general use)
+OPT  += -DNGRAVS_STOCK_TESTING
+#OPT  += -DNGRAVS_GEN_TESTING_UNIFORM
+#OPT  += -DNGRAVS_YUKAWA_FORCETEST
+#OPT  += -DNGRAVS_COMBINED_TESTING_UNIFORM
+
 #OPT  += -DNGRAVS_DEBUG_FORCETRACE
 #OPT  += -DNGRAVS_KUNIT_TEST
 
 #OPT  += -DDEBUG_N_GRAVS_PMPERIODIC
 #OPT  += -DNGRAVS_DEBUG_UNITS_CHECK
-#OPT  += -DNGRAVS_ACCUMULATOR
-#OPT  += -DNGRAVS_L3VIOLATION
 #OPT  += -DNGRAVS_PERIODIC_CMP
 #OPT  += -DNGRAVS_ACCUMULATOR_DEBUG
 
 
 #--------------------------------------- Basic operation mode of code
-OPT   +=  -DPERIODIC 
+#OPT   +=  -DPERIODIC 
 OPT   +=  -DUNEQUALSOFTENINGS
 
 
@@ -56,10 +82,10 @@ OPT   +=  -DWALLCLOCK
 
 
 #--------------------------------------- TreePM Options
-OPT   +=  -DPMGRID=300
+#OPT   +=  -DPMGRID=256
 #OPT   +=  -DPLACEHIGHRESREGION=4
 #OPT   +=  -DENLARGEREGION=1.2
-OPT   +=  -DASMTH=2
+#OPT   +=  -DASMTH=2
 #OPT   +=  -DRCUT=4.5
 
 
@@ -101,7 +127,7 @@ OPT   +=  -DSYNCHRONIZATION
 #OPT   +=  -DSELECTIVE_NO_GRAVITY=2+4+8+16
 
 #--------------------------------------- Testing and Debugging options
-OPT   +=  -DFORCETEST=1
+#OPT   +=  -DFORCETEST=1
 
 
 #--------------------------------------- Glass making
@@ -115,118 +141,15 @@ OPT   +=  -DFORCETEST=1
 #----------------------------------------------------------------------
 
 #--------------------------------------- Select some defaults
-YOUR_SYSROOT=/home/twili/research
 
 CC       = mpicc               # sets the C-compiler
 OPTIMIZE = -g -O3 -Wall
 MPICHLIB = 
-FFTW_INCL= -I$(YOUR_SYSROOT)/include
-FFTW_LIBS= -L$(YOUR_SYSROOT)/lib
+FFTW_INCL= -I/home/twili/research/include
+FFTW_LIBS= -L/home/twili/research/lib
 
 
-#--------------------------------------- Select target computer
-
-#SYSTYPE="MPA"
-#SYSTYPE="Mako"
-#SYSTYPE="Regatta"
-#SYSTYPE="RZG_LinuxCluster"
-#SYSTYPE="RZG_LinuxCluster-gcc"
-#SYSTYPE="OpteronMPA"
-#SYSTYPE="OPA-Cluster32"
-#SYSTYPE="OPA-Cluster64"
-
-
-#--------------------------------------- Adjust settings for target computer
-
-ifeq ($(SYSTYPE),"MPA")
-CC       =  mpicc   
-OPTIMIZE = -O3 -Wall
-GSL_INCL =  -I/usr/common/pdsoft/include
-GSL_LIBS =  -L/usr/common/pdsoft/lib  -Wl,"-R /usr/common/pdsoft/lib"
-FFTW_INCL= 
-FFTW_LIBS= 
-MPICHLIB = 
-HDF5INCL =  
-HDF5LIB  =  -lhdf5 -lz 
-endif
-
-
-ifeq ($(SYSTYPE),"OpteronMPA")
-CC       =  mpicc   
-OPTIMIZE = -O3 -Wall
-GSL_INCL =  -L/usr/local/include
-GSL_LIBS =  -L/usr/local/lib 
-FFTW_INCL=
-FFTW_LIBS=
-MPICHLIB = 
-#HDF5INCL =  -I/opt/hdf5/include
-#HDF5LIB  =  -L/opt/hdf5/lib -lhdf5 -lz  -Wl,"-R /opt/hdf5/lib"
-endif
-
-
-ifeq ($(SYSTYPE),"OPA-Cluster32")
-CC       =  mpicc   
-OPTIMIZE = -O3 -Wall
-GSL_INCL =  -I/afs/rzg/bc-b/vrs/opteron32/include
-GSL_LIBS =  -L/afs/rzg/bc-b/vrs/opteron32/lib  -Wl,"-R /afs/rzg/bc-b/vrs/opteron32/lib"
-FFTW_INCL=  -I/afs/rzg/bc-b/vrs/opteron32/include
-FFTW_LIBS=  -L/afs/rzg/bc-b/vrs/opteron32/lib 
-MPICHLIB = 
-HDF5INCL =  
-HDF5LIB  =  -lhdf5 -lz 
-endif
-
-
-ifeq ($(SYSTYPE),"OPA-Cluster64")
-CC       =  mpicc   
-OPTIMIZE = -O3 -Wall
-GSL_INCL =  -I/afs/rzg/bc-b/vrs/opteron64/include
-GSL_LIBS =  -L/afs/rzg/bc-b/vrs/opteron64/lib  -Wl,"-R /afs/rzg/bc-b/vrs/opteron64/lib"
-FFTW_INCL=  -I/afs/rzg/bc-b/vrs/opteron64/include
-FFTW_LIBS=  -L/afs/rzg/bc-b/vrs/opteron64/lib 
-MPICHLIB = 
-HDF5INCL =  
-HDF5LIB  =  -lhdf5 -lz 
-endif
-
-
-ifeq ($(SYSTYPE),"Mako")
-CC       =  mpicc   # sets the C-compiler
-OPTIMIZE = -O3 -Wall
-GSL_INCL = 
-GSL_LIBS = 
-FFTW_INCL= 
-FFTW_LIBS= 
-MPICHLIB = 
-HDF5INCL =  
-HDF5LIB  =  -lhdf5 -lz 
-endif
-
-
-ifeq ($(SYSTYPE),"Regatta")
-CC       =  mpcc_r 
-OPTIMIZE = -O3 -Wall
-GSL_INCL =  -I/afs/rzg/u/vrs/gsl_psi64/include
-GSL_LIBS =  -L/afs/rzg/u/vrs/gsl_psi64/lib                
-FFTW_INCL=  -I/afs/rzg/u/vrs/fftw_psi64/include
-FFTW_LIBS=  -L/afs/rzg/u/vrs/fftw_psi64/lib  -q64 -qipa
-MPICHLIB = 
-HDF5INCL =  -I/afs/rzg/u/vrs/hdf5_psi64/include
-HDF5LIB  =  -L/afs/rzg/u/vrs/hdf5_psi64/lib  -lhdf5 -lz 
-endif
-
-
-ifeq ($(SYSTYPE),"RZG_LinuxCluster")
-CC       =  mpicci   
-OPTIMIZE = -O3 -Wall
-GSL_INCL =  -I/afs/rzg/u/vrs/gsl_linux/include
-GSL_LIBS =  -L/afs/rzg/u/vrs/gsl_linux/lib  -Wl,"-R /afs/rzg/u/vrs/gsl_linux/lib"
-FFTW_INCL=  -I/afs/rzg/u/vrs/fftw_linux/include
-FFTW_LIBS=  -L/afs/rzg/u/vrs/fftw_linux/lib
-HDF5INCL =  -I/afs/rzg/u/vrs/hdf5_linux/include
-HDF5LIB  =  -L/afs/rzg/u/vrs/hdf5_linux/lib -lhdf5 -lz  -Wl,"-R /afs/rzg/u/vrs/hdf5_linux/lib"
-endif
-
+#--------------------------------------- Some sample directories
 
 ifeq ($(SYSTYPE),"RZG_LinuxCluster-gcc")
 CC       =  mpiccg
@@ -258,7 +181,7 @@ OBJS   = main.o  run.o  predict.o begrun.o endrun.o global.o  \
 	 domain.o  allvars.o potential.o  \
          forcetree.o   peano.o gravtree_forcetest.o \
 	 pm_periodic.o pm_nonperiodic.o longrange.o \
-	ngravs.o
+	ngravs.o ngravs_core.o
 
 INCL   = allvars.h  proto.h  tags.h  Makefile
 
@@ -280,7 +203,7 @@ endif
 LIBS   =   -g  $(MPICHLIB) -lgsl -lgslcblas -lm $(FFTW_LIB) 
 
 $(EXEC): $(OBJS) 
-	$(CC) $(OBJS) $(LIBS) $(CFLAGS) -o  $(EXEC)
+	$(CC) $(OBJS) $(LIBS) $(CFLAGS)  -o  $(EXEC)  
 
 $(OBJS): $(INCL) 
 
@@ -536,6 +459,3 @@ clean:
 #     evolved towards a glass with the sign of gravity reversed.
 #
 #-----------------------------------------------------------------------
-
-OPT += -DNTAB=2048
-OPT += $(USER_DEFINES)
