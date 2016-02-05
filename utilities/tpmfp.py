@@ -58,8 +58,8 @@ if not os.path.exists(stash):
 
 # Some general settings
 L = 10000
-spheres = 1000
-particles = 7
+spheres = 500
+particles = 15
 
 # Good values differ depending on what you're 
 # trying to test.  (Ngravs can actually do
@@ -85,15 +85,16 @@ if not len(sys.argv) > 4:
 
         # 2) Iterate over radii
         for r in [L/2.0 - N*L/(2*spheres) for N in range(1, spheres)]:
-            #for k in range(0, int((1 - (r*2.0/L)**3)*particles)):
-            for k in range(0, int(particles/(r*0.5/L)**2)):
+            k = 0
+            for k in range(0, int((1.0 - (r*2/L)**3)*particles) ):
                 radius = np.random.uniform(r, r+L/(2.0*spheres))
                 theta = np.random.uniform(0, pi)
                 phi = np.random.uniform(0, 2*pi)
                 pos = center + radius*np.array([sin(theta)*cos(phi), sin(theta)*sin(phi), cos(theta)])
             
                 body.append(pos)
-
+            
+            print "Placed %d particles at radius %f\n" % (k, r)
         # Now we manually create the stub file and write it out
         stub = open("%s/stub" % stash, 'w')
         stub.write("# g2munge: %d\n\n# Group 0: 0\n\n# Group 1: %d\n" % (len(body)+1, len(body)))
@@ -207,7 +208,7 @@ i = 1
 # x^sys.argv[2] = 10^4 --> x = pow(10^4, 1.0/sys.argv[2])
 binbase = pow(10**4, 1.0/float(bins))
 binrights = [pow(binbase, i) for i in range(0, bins)]
-here = 0
+here = 1
 
 for r,error in errors:
     
@@ -216,8 +217,9 @@ for r,error in errors:
         print 
 
     if r > binrights[here]:
-        bincen = sqrt(binrights[here] * pow(binbase, i-1))
-        
+        bincen = sqrt(binrights[here] * binrights[here-1])
+        binwidth = binrights[here] - binrights[here-1]
+
         # Go to the next bin
         here += 1
 
@@ -230,11 +232,11 @@ for r,error in errors:
             sum = 0.0
             while len(stack) > 0:
                 sum += float(stack.pop())**2
-            binned.write("%f %f\n" % (bincen, sqrt(sum/N)))
+            binned.write("%f %f %f %f\n" % (bincen, sqrt(sum/N), 1.0, binwidth))
         else:
             # If we don't have things, that means the previous bin is empty
-            binned.write("%f %f\n" % (bincen, 0.0))
-
+            binned.write("%f %f %f %f\n" % (bincen, 0.0, 1.0, binwidth))
+            
     # Always push the newest entry
     stack.append(error)
 

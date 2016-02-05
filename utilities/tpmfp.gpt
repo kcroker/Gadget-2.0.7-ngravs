@@ -1,0 +1,75 @@
+# Now write the multiplot
+set macros
+set term tikz size 8cm,7cm standalone
+set output "fe_yukawa.tex"
+
+# Define margins
+TMARGIN = "set tmargin at screen 1.0; set bmargin at screen 0.8"
+BMARGIN = "set tmargin at screen 0.8; set bmargin at screen 0.0"
+LRMARGIN = "set lmargin at screen 0.15; set rmargin at screen 0.95"
+
+# Define Twilight!
+set style line 11 lc rgb '#363b74'
+set style line 12 lt 0 lw 2 lc rgb '#673888'
+set style line 13 lt 2 lw 2 lc rgb '#ef4f91'
+set style line 14 lw 2 lt -1 lc rgb '#c79dd7'
+set style line 15 lw 2 lt -1 lc rgb '#4d1b7b'
+
+set multiplot layout 2,1
+
+# Draw the residuals
+@TMARGIN; @LRMARGIN;
+
+unset key
+set xtics format ""
+set ytics format "$10^{%T}$"
+set logscale
+set xrange [1e-3:0.5]
+set yrange [1e-5:3e-2]
+set ylabel "$\\Delta_\\mathrm{RMS}$" offset -1,0
+alphax=0.0014
+alphay=0.0023
+set label "$\\alpha$" at alphax, alphay
+set tics front
+# Ridiculous hackage to get a border color different than the box fill color
+set boxwidth 0.8 relative
+plot "tpmfp_rms" using ($1*1e-4):2 w boxes ls 15
+set boxwidth 0.68 relative
+unset xtics
+unset ytics
+unset label
+unset ylabel
+unset border
+plot "tpmfp_rms" using ($1*1e-4):($2*0.9) w boxes fill solid ls 14, 0.005 lt 3 lc -1
+
+# Set the parameters for the lower graph
+@BMARGIN; @LRMARGIN;
+
+unset logscale
+unset label
+set border
+set xtics format "%0.3f"
+set ytics -0.04, 0.02, 0.039 format "%0.2f"
+set mytics 4
+show mytics
+set logscale x
+set yrange [-0.04:0.04]
+set xrange [1e-3:0.5]
+set ylabel "$\\Delta f / f$"
+set xlabel "$r/L$"
+# Label the transition regions
+mesh=(1e4/256)*1e-4
+rs=1.25*mesh
+set arrow from mesh,-0.04 to mesh,0.04 nohead ls 12
+set arrow from rs,-0.04 to rs,0.04 nohead ls 13
+
+# Plot the graph, thinning gradually so as to not kill pdflatex
+plot "tpmfp_output" u ($1*1e-4):($1 < 400 ? $2 : 1/0) w points lw 1 pt 0 lc rgb '#363b74', \
+     "" u ($1*1e-4):($1 >= 400 && $1 < 500 ? $2 : 1/0) every 2 w points lw 1 pt 0 lc rgb '#363b74', \
+     "" u ($1*1e-4):($1 >= 500 && $1 < 600 ? $2 : 1/0) every 3 w points lw 1 pt 0 lc rgb '#363b74', \
+     "" u ($1*1e-4):($1 >= 600 && $1 < 700 ? $2 : 1/0) every 4 w points lw 1 pt 0 lc rgb '#363b74', \
+     "" u ($1*1e-4):($1 >= 700 && $1 < 800 ? $2 : 1/0) every 5 w points lw 1 pt 0 lc rgb '#363b74', \
+     "" u ($1*1e-4):($1 >= 800 ? $2 : 1/0) every 10 w points lw 1 pt 0 lc rgb '#363b74', \
+     0 lt 1 lc -1
+
+unset multiplot

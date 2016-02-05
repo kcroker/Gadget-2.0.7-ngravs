@@ -477,11 +477,20 @@ int get_timestep(int p,		/*!< particle index */
 	{
 	  dt = flag * All.Timebase_interval;
 	  dt /= hubble_a;	/* convert dloga to physical timestep  */
-	  ac = 2 * All.ErrTolIntAccuracy * atime * All.SofteningTable[P[p].Type] / (dt * dt);
+
+	  // KC 2/5/16
+	  // So that the predicted physical acceleration is appropriately scaled in the case
+	  // of summed force laws
+	  ac = 2 * All.ErrTolIntAccuracy * atime * All.SofteningTable[P[p].Type] / (dt * dt * NGRAVS_TIMESTEP_SCALE);
 	  *aphys = ac;
 	  return flag;
 	}
 
+      // KC 2/5/16
+      // The overall timestep adjustment to maintain accuracy 
+      // with forces that can be increased relative to Newton
+      // ac is used elsewhere, so we modify it here just once.
+      ac *= NGRAVS_TIMESTEP_SCALE;
       dt = dt_accel = sqrt(2 * All.ErrTolIntAccuracy * atime * All.SofteningTable[P[p].Type] / ac);
       
     

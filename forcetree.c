@@ -1639,7 +1639,6 @@ int force_treeevaluate_shortrange(int target, int mode)
   double r2min, r2max;
   char nintflag;
   int pgravtype, whichGrav;
-  double r2inv;
   double utor2wpi;
   
 #ifdef NGRAVS_ACCUMULATOR
@@ -3184,14 +3183,16 @@ void force_treeallocate(int maxnodes, int maxpart)
   // KC 27.9.15
   FLOAT u;
   int nA, nB;
-  double r;
   FLOAT Z;
-  
+
+#ifdef NGRAVS_TREEPM_XITION_CHECK  
   char buf[512];
   FILE *fhand = NULL;
   int skipWrite = 0;
-
+  double r;
   double utor2wpi, asmthfac;
+#endif
+
 #endif
 
   MaxNodes = maxnodes;
@@ -3382,8 +3383,6 @@ void force_treeallocate(int maxnodes, int maxpart)
 #endif
 	}
       }
-
-      //endrun(5678);
 
       // Cleanup
       ngravsConvolutionFree(ngravsPeriodicTable);
@@ -3609,7 +3608,9 @@ void lattice_init(void)
   FILE *fd;
   
   int l, m;
+#ifdef NGRAVS_DEBUG_UNITS_CHECK
   double r2;
+#endif 
 
   if(ThisTask == 0)
     {
