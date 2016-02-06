@@ -31,7 +31,7 @@
 #
 # - NGRAVS_ACCUMULATOR:
 #     Enable to track the number of particles contained within tree nodes.  This information
-#     is then accurately provided to AccelFxns and SplineFxns for making an accurate monopole 
+#     is then accurately provided to AccelFxns and SplineFxns for making an improved monopole 
 #     approximation in exotic force scenarios.
 #
 # - NGRAVS_L3VIOLATION:
@@ -145,22 +145,9 @@ OPT   +=  -DSYNCHRONIZATION
 CC       = mpicc               # sets the C-compiler
 OPTIMIZE = -g -O3 -Wall
 MPICHLIB = 
-FFTW_INCL= -I/home/twili/research/include
-FFTW_LIBS= -L/home/twili/research/lib
-
-
-#--------------------------------------- Some sample directories
-
-ifeq ($(SYSTYPE),"RZG_LinuxCluster-gcc")
-CC       =  mpiccg
-OPTIMIZE = -O3 -Wall
-GSL_INCL =  -I/afs/rzg/u/vrs/gsl_linux_gcc3.2/include
-GSL_LIBS =  -L/afs/rzg/u/vrs/gsl_linux_gcc3.2/lib  -Wl,"-R /afs/rzg/u/vrs/gsl_linux_gcc3.2/lib"
-FFTW_INCL=  -I/afs/rzg/u/vrs/fftw_linux_gcc3.2/include
-FFTW_LIBS=  -L/afs/rzg/u/vrs/fftw_linux_gcc3.2/lib  
-HDF5INCL =  -I/afs/rzg/u/vrs/hdf5_linux/include
-HDF5LIB  =  -L/afs/rzg/u/vrs/hdf5_linux/lib  -lhdf5 -lz  -Wl,"-R /afs/rzg/u/vrs/hdf5_linux/lib"
-endif
+# Its usually easier to define these in your environment if you need them
+#GADGET2_INCL= -I/home/twili/research/include
+#GADGET2_LIBS= -L/home/twili/research/lib
 
 
 ifneq (HAVE_HDF5,$(findstring HAVE_HDF5,$(OPT))) 
@@ -186,7 +173,7 @@ OBJS   = main.o  run.o  predict.o begrun.o endrun.o global.o  \
 INCL   = allvars.h  proto.h  tags.h  Makefile
 
 
-CFLAGS = $(OPTIONS) $(FFTW_INCL) $(FFTW_LIBS)
+CFLAGS = $(OPTIONS) $(GADGET2_INCL) $(GADGET2_LIBS)
 
 
 ifeq (NOTYPEPREFIX_FFTW,$(findstring NOTYPEPREFIX_FFTW,$(OPT)))    # fftw installed with type prefix?

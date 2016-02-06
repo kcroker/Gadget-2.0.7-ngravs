@@ -821,7 +821,8 @@ double ewald_psi(double x[3])
  double coloyuk(double target, double source, double h, double r, long N) {
    return yukawa(target, source, h, r, N) + newtonian(target, source, h, r, N);
  }
- 
+
+#ifdef PMGRID
  double pgcoloyuk(double target, double source, double k2, double k, long N) {
    return pgyukawa(target, source, k2, k, N) + pgdelta(target, source, k2, k, N);
  }
@@ -830,6 +831,7 @@ double ewald_psi(double x[3])
 
    return normed_pgyukawa(target, source, k2, k, N) + normed_pgdelta(target, source, k2, k, N);
  }
+#endif
 
  void coloyuk_lattice_force(int iii, int jjj, int kkk, double x[3], double force[3]) {
    
@@ -856,6 +858,9 @@ double ewald_psi(double x[3])
 /*! A periodic yukawa k-space Greens function, normalized by the Newtonian interaction
  *  NOTE: k is supplied dimensionlessly in terms of PMGRID so k \in [-PMGRID/2, PMGRID/2]
  */
+#ifdef PMGRID
+// This #ifdef is required because the structures for tracking the smoothing length
+// are not allocated unless running in periodic mode.
 double pgyukawa(double target, double source, double k2, double k, long N) {
   
   double ym = YUKAWA_IMASS/(2*M_PI);
@@ -873,6 +878,7 @@ double normed_pgyukawa(double target, double source, double k2, double k, long N
   double ym = gridKtoNormK(YUKAWA_IMASS/(2*M_PI));
   return k2 / (k2 + ym*ym) * exp(-ym*ym*0.25);
 }
+#endif
 
 /*! This function computes the Madelung constant for the yukawa potential
  * which depends on the box length interestingly...

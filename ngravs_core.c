@@ -21,6 +21,7 @@
  *
  */
 
+#ifdef PMGRID
 struct ngravsInterpolant *ngravsPeriodicTable;
 
 double normKtoGridK(double normk) {
@@ -188,6 +189,7 @@ void ngravsConvolutionFree(struct ngravsInterpolant *s) {
   fftw_destroy_plan(s->plan);
   free(s);
 }
+#endif
 
 //////////////////////// END FOURIER INTEGRATION ROUTINES //////////
 
