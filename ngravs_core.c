@@ -70,7 +70,7 @@ int fourierToGadget(int i, struct ngravsInterpolant *s) {
 
 double fourierIntegrand(double k, gravity normKGreen, double Z) {
   
-  FLOAT k2 = k*k;
+  double k2 = k*k;
   
   return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
 }

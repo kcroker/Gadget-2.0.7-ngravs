@@ -77,7 +77,7 @@ double jTok(int m, double Z, struct ngravsInterpolant *s);
 double normKtoGridK(double normk);
 double gridKtoNormK(double gridk);
 void kConversionUnitTest(void);
-double fourierIntegrand(double k, gravity normKGreen, FLOAT Z);
+double fourierIntegrand(double k, gravity normKGreen, double Z);
 
 // Initialization functions for ngravs extension
 void wire_grav_maps(void);
