@@ -3184,6 +3184,7 @@ void force_treeallocate(int maxnodes, int maxpart)
   FLOAT u;
   int nA, nB;
   FLOAT Z;
+  double temp[NTAB], tempI[NTAB];
 
 #ifdef NGRAVS_TREEPM_XITION_CHECK  
   char buf[512];
@@ -3287,8 +3288,8 @@ void force_treeallocate(int maxnodes, int maxpart)
 	  i = performConvolution(ngravsPeriodicTable, 
 				 NormedGreensFxns[nB][nA], 
 				 Z,
-				 shortrange_fourier_pot[nB][nA], 
-				 shortrange_fourier_force[nB][nA]);
+				 temp, 
+				 tempI);
 	  if(i) {
 
 	    printf("ngravs: could not allocate memory for FFT on task %d.  Reduce OL and/or LEN and recompile.", ThisTask);
@@ -3334,15 +3335,22 @@ void force_treeallocate(int maxnodes, int maxpart)
 	    if(!ThisTask && !skipWrite)
 	      fprintf(fhand, "%.15e %.15e %.15e\n", 
 		      u,
-		      shortrange_fourier_pot[nB][nA][i],
-		      shortrange_fourier_force[nB][nA][i]);
+		      temp[i],
+		      tempI[i]);
 #endif
 	    // Divide by the appropriate values of u to save computation time in actual use
-	    shortrange_fourier_force[nB][nA][i] /= u*u;
-	    shortrange_fourier_pot[nB][nA][i] /= u;
+	    tempI[i] /= u*u;
+	    temp[i] /= u;
 
-	    // Precompute buddy!
-	    shortrange_fourier_force[nB][nA][i] -= shortrange_fourier_pot[nB][nA][i];
+	    // NOW Lose precision as we assign to the final table that needs to run fast in cache
+	    // Do potential first
+	    shortrange_fourier_pot[nB][nA][i] = temp[i];
+	    
+	    // Precompute buddy! (working in double)
+	    tempI[i] -= temp[i];
+	    
+	    // NOW lose precision as we assign to the final table for forces
+	    shortrange_fourier_force[nB][nA][i] = tempI[i];
 	  }
 	  
 #if defined NGRAVS_DEBUG_FORCETRACE && defined NGRAVS_TREEPM_XITION_CHECK	

@@ -194,6 +194,10 @@ void domain_decompose(void)
     }
   free(temp);
 
+  // KC 2/7/16
+  // Note that this only checks the active softenings,
+  // the only ones that affect particles present in the 
+  // any particular initial condition.
 #ifndef UNEQUALSOFTENINGS
   for(i = 0; i < 6; i++)
     if(Ntype[i] > 0)

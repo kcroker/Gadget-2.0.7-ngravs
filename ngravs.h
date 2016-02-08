@@ -69,7 +69,7 @@ double yukawa_madelung(double ym);
 
 // Functions required for convolution
 int gadgetToFourier(int i, struct ngravsInterpolant *s);
-int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI);
+int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, double *oRes, double *oResI);
 struct ngravsInterpolant *ngravsConvolutionInit(int ntab, int len, int ol);
 void ngravsConvolutionFree(struct ngravsInterpolant *s);
 FLOAT mTox(int m, struct ngravsInterpolant *s);

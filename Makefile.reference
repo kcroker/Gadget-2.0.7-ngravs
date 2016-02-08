@@ -168,7 +168,7 @@ OBJS   = main.o  run.o  predict.o begrun.o endrun.o global.o  \
 	 domain.o  allvars.o potential.o  \
          forcetree.o   peano.o gravtree_forcetest.o \
 	 pm_periodic.o pm_nonperiodic.o longrange.o \
-	ngravs.o ngravs_core.o
+	 ngravs.o ngravs_core.o
 
 INCL   = allvars.h  proto.h  tags.h  Makefile
 

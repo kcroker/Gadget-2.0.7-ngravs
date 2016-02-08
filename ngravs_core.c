@@ -75,7 +75,7 @@ FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z) {
   return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
 }
 
-int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, FLOAT *oRes, FLOAT *oResI) {
+int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, double *oRes, double *oResI) {
   
   fftw_complex *in, *out;
   int m,j;
@@ -128,6 +128,11 @@ int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z,
   // ???
   sum = s->ngravs_tpm_n;
 
+  // KC 2/8/16
+  // XXX
+  // Loss of precision here, we need to compute all of these 
+  // in terms of double, and assign to the final interpolation table
+  // whatever FLOAT happens to be...
   for(m = 0; m < s->ntab; ++m)
     oRes[m] = out[gadgetToFourier(m, s)].re * norm;
 
@@ -203,7 +208,6 @@ void init_grav_maps(void) {
 
   int i, j;
   int counts[N_GRAVS];
-  int n;
 
 #ifdef BAMTEST
   double q;

@@ -106,12 +106,12 @@ GravityConstantInternal  0
 % That initial condition file uses only GADGET-2 types Halo (1) and Disk (2).  Here GADGET-2 types 
 % {0,1,3,4,5} are bound to the first gravitational interaction (0), which GADGET-2 type {2} is bound 
 % to the second gravitational interaction (1).  These interactions are defined in ngravs.c and ngravs.h
-% GravityGas 0
-% GravityHalo 0 
-% GravityDisk 1
-% GravityBulge 0
-% GravityStars 0
-% GravityBndry 0
+GravityGas 0
+GravityHalo 0 
+GravityDisk 1
+GravityBulge 0
+GravityStars 0
+GravityBndry 0
 
 % Softening lengths
 

@@ -94,7 +94,7 @@ if not len(sys.argv) > 4:
             
                 body.append(pos)
             
-            print "Placed %d particles at radius %f\n" % (k, r)
+            #print "Placed %d particles at radius %f\n" % (k, r)
         # Now we manually create the stub file and write it out
         stub = open("%s/stub" % stash, 'w')
         stub.write("# g2munge: %d\n\n# Group 0: 0\n\n# Group 1: %d\n" % (len(body)+1, len(body)))
