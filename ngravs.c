@@ -41,6 +41,11 @@
 #ifndef YUKAWA_IMASS
 #define YUKAWA_IMASS 60.0
 #endif
+
+#ifndef BAM_EPSILON
+#define BAM_EPSILON 1.31e-6
+#endif
+
 //
 // 1/YUKAWA_IMASS sets the suppression *length* scale wrt 1/2 box length
 //

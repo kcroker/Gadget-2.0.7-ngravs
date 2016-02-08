@@ -74,11 +74,6 @@ typedef  long long  peanokey;    /*!< defines the variable type used for Peano-H
 #define  ELECTRONCHARGE    4.8032e-10
 #define  HUBBLE            3.2407789e-18	/* in h/sec */
 
-/* KC 8/9/14 BAM Halo dimensionless epsilon.  G looked like it was set to one internally
-   as far as the acceleration computation in forcetree.c went.  Not sure about c...
-*/
-#define BAM_EPSILON        1.31e-2
-
 /* Some conversion factors */
 
 #define  SEC_PER_MEGAYEAR  3.155e13
