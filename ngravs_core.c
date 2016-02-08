@@ -1,13 +1,7 @@
 #include <stdio.h>
-//#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <mpi.h>
-//#include <sys/types.h>
-//#include <unistd.h>
-//#include <gsl/gsl_rng.h>
-//#include <gsl/gsl_math.h>
-//#include <gsl/gsl_sf_erf.h>
 #include "ngravs.h"
 #include "allvars.h"
 #include "proto.h"

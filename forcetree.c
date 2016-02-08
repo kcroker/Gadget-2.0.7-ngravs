@@ -1633,7 +1633,7 @@ int force_treeevaluate_shortrange(int target, int mode)
   // KC 10/17/14
   // ngravs extensions
   int sG;
-  FLOAT pmass;
+  double pmass;
   int i;
   double summass;
   double r2min, r2max;

@@ -54,6 +54,9 @@ double sourcebaryonbam_pot(double target, double source, double h, double r, lon
 double plummer(double target, double source, double h, double r, long N);
 double neg_plummer(double target, double source, double h, double r, long N);
 double null_spline(double target, double source, double h, double r, long N);
+double sourcebaryonbam_spline(double target, double source, double h, double r, long N);
+double sourcebambaryon_spline(double target, double source, double h, double r, long N);
+double bambam_spline(double target, double source, double h, double r, long N);
 
 // Potential spline functions
 double plummer_pot(double target, double source, double h, double r, long N);
