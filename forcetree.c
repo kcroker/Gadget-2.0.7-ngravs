@@ -27,10 +27,10 @@ static int last;
 
 
 #ifdef PMGRID
-// KC 11/4/15
-// Note that we use FLOAT here because if the FFTW routines expect the wrong width, 
-// you're going to have a bad time
-static FLOAT shortrange_fourier_pot[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_force[N_GRAVS][N_GRAVS][NTAB];
+// KC 2/8/16
+// We make these double because we are now doing subtractions with them, instead of multiplications
+// so we need the additional precision.  
+static double shortrange_fourier_pot[N_GRAVS][N_GRAVS][NTAB], shortrange_fourier_force[N_GRAVS][N_GRAVS][NTAB];
 extern struct ngravsInterpolant *ngravsPeriodicTable;
 #endif
 
