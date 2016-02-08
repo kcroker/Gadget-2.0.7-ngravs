@@ -48,12 +48,12 @@ double gridKtoNormK(double gridk) {
 // Please see the ngravs paper for detailed discussion of the behaviour here
 //
 
-FLOAT jTok(int m, double Z, struct ngravsInterpolant *s) {
+double jTok(int m, double Z, struct ngravsInterpolant *s) {
 
   return 2.0 * M_PI * m * s->ntab * 6.0 * s->ol/(3.0 * s->ngravs_tpm_n);
 }
 
-FLOAT mTox(int j, struct ngravsInterpolant *s) {
+double mTox(int j, struct ngravsInterpolant *s) {
   
   return 3.0*j/(6.0 * s->ntab * s->ol);
 }
@@ -68,14 +68,14 @@ int fourierToGadget(int i, struct ngravsInterpolant *s) {
   return (i - 3 * s->ol)/(6 * s->ol);
 }
 
-FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z) {
+double fourierIntegrand(double k, gravity normKGreen, double Z) {
   
   FLOAT k2 = k*k;
   
   return (*normKGreen)(1, 1, k2, k, 1) * exp(-k2 * Z * Z);
 }
 
-int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, double *oRes, double *oResI) {
+int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, double Z, double *oRes, double *oResI) {
   
   fftw_complex *in, *out;
   int m,j;

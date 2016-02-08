@@ -3181,9 +3181,9 @@ void force_treeallocate(int maxnodes, int maxpart)
 
 #ifdef PMGRID
   // KC 27.9.15
-  FLOAT u;
+  double u;
   int nA, nB;
-  FLOAT Z;
+  double Z;
   double temp[NTAB], tempI[NTAB];
 
 #ifdef NGRAVS_TREEPM_XITION_CHECK  

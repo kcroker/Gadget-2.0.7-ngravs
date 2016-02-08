@@ -69,15 +69,15 @@ double yukawa_madelung(double ym);
 
 // Functions required for convolution
 int gadgetToFourier(int i, struct ngravsInterpolant *s);
-int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, FLOAT Z, double *oRes, double *oResI);
+int performConvolution(struct ngravsInterpolant *s, gravity normKGreen, double Z, double *oRes, double *oResI);
 struct ngravsInterpolant *ngravsConvolutionInit(int ntab, int len, int ol);
 void ngravsConvolutionFree(struct ngravsInterpolant *s);
-FLOAT mTox(int m, struct ngravsInterpolant *s);
-FLOAT jTok(int m, double Z, struct ngravsInterpolant *s);
+double mTox(int m, struct ngravsInterpolant *s);
+double jTok(int m, double Z, struct ngravsInterpolant *s);
 double normKtoGridK(double normk);
 double gridKtoNormK(double gridk);
 void kConversionUnitTest(void);
-FLOAT fourierIntegrand(FLOAT k, gravity normKGreen, FLOAT Z);
+double fourierIntegrand(double k, gravity normKGreen, FLOAT Z);
 
 // Initialization functions for ngravs extension
 void wire_grav_maps(void);
