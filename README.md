@@ -83,7 +83,8 @@ io.c: Routines for producing a snapshot file on disk<br>
 longrange.c: Driver routines for computation of long-range gravitational PM force<br>
 main.c: Start of the program<br>
 ngb.c: Neighbour search by means of the tree<br>
-ngravs.c: defines the gravitational force law for real space, k, and lattice sums<br>
+ngravs.c: defines gravitational force laws for real space, k, and lattice sums<br>
+ngravs_core.c: defines ngravs treepm computations and other model-independent code<br>
 peano.c: Routines to compute a Peano-Hilbert order<br>
 pm_nonperiodic.c: Code for non-periodic FFT to compute long-range PM force<br>
 pm_periodic.c: Routines for periodic PM-force computation<br>
@@ -100,7 +101,16 @@ proto.h: This file contains all function prototypes of the code (non-ngravs)<br>
 tags.h: Declares various tags for labelling MPI messages (non-ngravs).  Defines how ngravs
 tags are determined from the pre-existing ones <br>
 
-Other Notes
+Updated Notes 
+----------------------------------------------- 
+TreePM in non-periodic settings has been disabled, so there are no
+"zoom" simulations at present.  The transition computation has been
+correctly implemented (this was an error in the first release).
+
+New Makefile options are detailed as well!
+-k@Tartu 2/10/16
+
+Older Notes
 ------------------------------------------------
 To see how the extension works, as well as for some annotation on how the original Gadget-2 algorithms
 operate, I have interspersed various dated comments with 'KC MM/DD/YY' into the source files wherever
